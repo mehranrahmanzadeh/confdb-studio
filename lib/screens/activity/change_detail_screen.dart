@@ -465,6 +465,7 @@ class _OutputPanelState extends State<_OutputPanel> {
                   Semantics(
                     selected: _tab == t,
                     child: InkWell(
+                      mouseCursor: WidgetStateMouseCursor.clickable,
                       onTap: () => setState(() => _tab = t),
                       child: Container(
                         constraints: const BoxConstraints(minHeight: 40),

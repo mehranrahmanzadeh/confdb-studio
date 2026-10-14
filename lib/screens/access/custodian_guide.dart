@@ -57,6 +57,7 @@ class CustodianBadge extends StatelessWidget {
           type: MaterialType.transparency,
           borderRadius: radius,
           child: InkWell(
+            mouseCursor: WidgetStateMouseCursor.clickable,
             borderRadius: radius,
             onTap: () => showCustodianGuide(context, schema: schema, snaps: snaps),
             child: StatusBadge.warning(short ? 'Missing' : 'No custodian', icon: AppIcons.help),

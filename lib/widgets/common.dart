@@ -624,6 +624,7 @@ class ListRow extends StatelessWidget {
           : Material(
               type: MaterialType.transparency,
               child: InkWell(
+                mouseCursor: WidgetStateMouseCursor.clickable,
                 onTap: onTap,
                 child: Semantics(button: true, label: semanticLabel, child: content),
               ),

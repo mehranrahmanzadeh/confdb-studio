@@ -44,6 +44,7 @@ class OutlinedSelect<T> extends StatelessWidget {
         button: true,
         label: label,
         child: InkWell(
+          mouseCursor: WidgetStateMouseCursor.clickable,
           onTap: enabled ? () => controller.isOpen ? controller.close() : controller.open() : null,
           borderRadius: BorderRadius.circular(4),
           child: InputDecorator(

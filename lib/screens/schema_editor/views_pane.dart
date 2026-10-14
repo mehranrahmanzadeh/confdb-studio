@@ -137,6 +137,7 @@ class _ViewsPaneState extends State<ViewsPane> {
               color: sel ? c.secondaryContainer : Colors.transparent,
               borderRadius: BorderRadius.circular(6),
               child: InkWell(
+                mouseCursor: WidgetStateMouseCursor.clickable,
                 borderRadius: BorderRadius.circular(6),
                 onTap: () => widget.onSelect(v.name),
                 child: ConstrainedBox(
@@ -203,6 +204,7 @@ class _ViewsPaneState extends State<ViewsPane> {
       label: '$request maps to $storage${bad ? ', lint error: storage path does not exist' : ''}',
       excludeSemantics: true,
       child: InkWell(
+        mouseCursor: WidgetStateMouseCursor.clickable,
         borderRadius: BorderRadius.circular(6),
         onTap: () => widget.onSelect(v.name, rule: r.request),
         child: Container(

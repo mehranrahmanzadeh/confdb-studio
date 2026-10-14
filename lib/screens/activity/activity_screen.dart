@@ -220,6 +220,7 @@ class _ChangesTable extends StatelessWidget {
                     child: Material(
                       type: MaterialType.transparency,
                       child: InkWell(
+                        mouseCursor: WidgetStateMouseCursor.clickable,
                         onTap: () => context.app.go(ChangeRoute(ch.id)),
                         child: Semantics(
                           button: true,

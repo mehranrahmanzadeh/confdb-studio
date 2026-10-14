@@ -133,12 +133,14 @@ class _SchemasListScreenState extends State<SchemasListScreen> {
               ),
             ),
             FilterChip(
+              mouseCursor: WidgetStateMouseCursor.clickable,
               avatar: Icon(AppIcons.warning, size: 18, color: c.onSurfaceVariant),
               label: Text('Has problems · $withProblems'),
               selected: _problems,
               onSelected: data == null ? null : (v) => setState(() => _problems = v),
             ),
             FilterChip(
+              mouseCursor: WidgetStateMouseCursor.clickable,
               avatar: Icon(AppIcons.edit, size: 18, color: c.onSurfaceVariant),
               label: Text('Drafts · $drafts'),
               selected: _draftsOnly,

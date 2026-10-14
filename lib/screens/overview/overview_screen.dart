@@ -141,6 +141,7 @@ class _Tile extends StatelessWidget {
       color: c.surfaceContainerLow,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ConfdbRadii.card)),
       child: InkWell(
+        mouseCursor: WidgetStateMouseCursor.clickable,
         onTap: onTap,
         customBorder: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ConfdbRadii.card)),
         child: Semantics(

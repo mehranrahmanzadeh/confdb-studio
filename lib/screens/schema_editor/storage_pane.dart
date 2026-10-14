@@ -151,6 +151,7 @@ class _Tree extends StatelessWidget {
           children: [
             Expanded(
               child: InkWell(
+                mouseCursor: WidgetStateMouseCursor.clickable,
                 borderRadius: BorderRadius.circular(8),
                 onTap: () => onEdit(path),
                 child: Semantics(

@@ -217,6 +217,7 @@ class _ChooseState extends State<_Choose> {
             side: BorderSide(color: selected ? c.primary : c.outlineVariant, width: selected ? 2 : 1),
           ),
           child: InkWell(
+            mouseCursor: WidgetStateMouseCursor.clickable,
             onTap: onTap,
             borderRadius: BorderRadius.circular(ConfdbRadii.card),
             child: Padding(
@@ -287,6 +288,7 @@ class _ChooseState extends State<_Choose> {
                   color: t.id == _template && !_import ? c.primaryContainer : Colors.transparent,
                   borderRadius: BorderRadius.circular(ConfdbRadii.card),
                   child: InkWell(
+                    mouseCursor: WidgetStateMouseCursor.clickable,
                     borderRadius: BorderRadius.circular(ConfdbRadii.card),
                     onTap: () => setState(() {
                       _import = false;

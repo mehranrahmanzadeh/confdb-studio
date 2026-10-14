@@ -384,6 +384,7 @@ class _StoragePathField extends StatelessWidget {
                           itemBuilder: (context, i) {
                             final (path, node) = list[i];
                             return InkWell(
+                              mouseCursor: WidgetStateMouseCursor.clickable,
                               onTap: () => onSelected(list[i]),
                               child: Container(
                                 constraints: const BoxConstraints(minHeight: 44),

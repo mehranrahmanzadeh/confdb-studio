@@ -337,9 +337,7 @@ class _Matrix extends StatelessWidget {
               for (var i = 0; i < snaps.length; i++)
                 ListRow(
                   first: i == 0,
-                  color: snaps[i].name == selected
-                      ? Color.alphaBlend(c.primaryContainer.withValues(alpha: 0.4), c.surfaceContainerLowest)
-                      : null,
+                  color: snaps[i].name == selected ? c.secondaryContainer : null,
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   onTap: () => onSelect(snaps[i].name),
                   semanticLabel: 'Select ${snaps[i].name}',
@@ -804,6 +802,7 @@ class _CellSwitch extends StatelessWidget {
     excludeSemantics: true,
     onTap: onChanged == null ? null : () => onChanged!(!value),
     child: InkResponse(
+      mouseCursor: WidgetStateMouseCursor.clickable,
       onTap: onChanged == null ? null : () => onChanged!(!value),
       radius: 24,
       child: SizedBox(

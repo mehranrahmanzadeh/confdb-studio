@@ -47,13 +47,24 @@ ThemeData buildAppTheme() {
     return BorderSide(color: scheme.outline);
   });
 
+  // Flutter's default is a hand cursor on the web only; desktop gets the
+  // arrow. Use the hand wherever something is clickable.
+  const clickable = WidgetStateMouseCursor.clickable;
+
   return base.copyWith(
     textTheme: textTheme,
-    filledButtonTheme: FilledButtonThemeData(style: base.filledButtonTheme.style!.copyWith(side: focusRing)),
-    outlinedButtonTheme: OutlinedButtonThemeData(style: base.outlinedButtonTheme.style!.copyWith(side: outlinedSide)),
-    textButtonTheme: TextButtonThemeData(style: base.textButtonTheme.style!.copyWith(side: focusRing)),
+    filledButtonTheme: FilledButtonThemeData(
+      style: base.filledButtonTheme.style!.copyWith(side: focusRing, mouseCursor: clickable),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: base.outlinedButtonTheme.style!.copyWith(side: outlinedSide, mouseCursor: clickable),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: base.textButtonTheme.style!.copyWith(side: focusRing, mouseCursor: clickable),
+    ),
     iconButtonTheme: IconButtonThemeData(
       style: ButtonStyle(
+        mouseCursor: clickable,
         foregroundColor: WidgetStatePropertyAll(scheme.onSurfaceVariant),
         shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(ConfdbRadii.button))),
         side: focusRing,
@@ -70,8 +81,12 @@ ThemeData buildAppTheme() {
         ),
         side: WidgetStatePropertyAll(BorderSide(color: scheme.outline)),
         minimumSize: const WidgetStatePropertyAll(Size(0, 40)),
+        mouseCursor: clickable,
       ),
     ),
+    menuButtonTheme: const MenuButtonThemeData(style: ButtonStyle(mouseCursor: clickable)),
+    popupMenuTheme: base.popupMenuTheme.copyWith(mouseCursor: clickable),
+    listTileTheme: base.listTileTheme.copyWith(mouseCursor: clickable),
     // The base SnackBar style has no font family; keep it in Ubuntu Sans.
     snackBarTheme: base.snackBarTheme.copyWith(contentTextStyle: textTheme.bodyMedium?.copyWith(color: scheme.onInverseSurface)),
     tooltipTheme: TooltipThemeData(

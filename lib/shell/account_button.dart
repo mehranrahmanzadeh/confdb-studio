@@ -79,6 +79,7 @@ class AccountButton extends StatelessWidget {
                 label: 'Snapcraft account. $tooltip',
                 excludeSemantics: true,
                 child: InkWell(
+                  mouseCursor: WidgetStateMouseCursor.clickable,
                   borderRadius: BorderRadius.circular(12),
                   onTap: () => controller.isOpen ? controller.close() : controller.open(),
                   child: Padding(

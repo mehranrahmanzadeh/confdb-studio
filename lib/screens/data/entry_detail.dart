@@ -151,6 +151,7 @@ class _EntryDetailState extends State<EntryDetail> {
     final showAttempt = lastFailed != null && (lastDone == null || lastFailed.spawnTime.isAfter(lastDone.spawnTime));
 
     Widget changeLink(ConfdbChange ch) => InkWell(
+      mouseCursor: WidgetStateMouseCursor.clickable,
       onTap: () => context.app.go(ChangeRoute(ch.id)),
       child: Text(
         '#${ch.id}',
