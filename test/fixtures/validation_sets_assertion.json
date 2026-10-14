@@ -1,0 +1,141 @@
+{
+ "headers": {
+  "account-id": "system",
+  "authority-id": "canonical",
+  "body-length": "1933",
+  "name": "validation-sets",
+  "summary": "Manage the validation sets installed on a device",
+  "timestamp": "2026-10-01T23:38:23Z",
+  "type": "confdb-schema",
+  "views": {
+   "admin": {
+    "rules": [
+     {
+      "access": "write",
+      "content": [
+       {
+        "storage": "pinned-sequence"
+       },
+       {
+        "storage": "mode"
+       }
+      ],
+      "request": "{account}.{set-name}",
+      "storage": "v1.{account}.{set-name}"
+     },
+     {
+      "access": "read",
+      "content": [
+       {
+        "content": [
+         {
+          "storage": "name"
+         },
+         {
+          "storage": "id"
+         },
+         {
+          "storage": "revision"
+         },
+         {
+          "storage": "presence"
+         }
+        ],
+        "storage": "snaps[{n}]"
+       },
+       {
+        "storage": "status"
+       },
+       {
+        "storage": "sequence"
+       },
+       {
+        "storage": "revision"
+       },
+       {
+        "storage": "pinned-sequence"
+       },
+       {
+        "storage": "mode"
+       }
+      ],
+      "request": "{account}.{set-name}",
+      "storage": "v1.{account}.{set-name}"
+     }
+    ],
+    "summary": "Control validation sets"
+   },
+   "pinning-admin": {
+    "rules": [
+     {
+      "access": "read-write",
+      "request": "{account}.{set-name}.pinned-sequence",
+      "storage": "v1.{account}.{set-name}.pinned-sequence"
+     }
+    ],
+    "summary": "Control pinning of validation sets"
+   },
+   "state": {
+    "rules": [
+     {
+      "access": "read",
+      "content": [
+       {
+        "content": [
+         {
+          "storage": "name"
+         },
+         {
+          "storage": "id"
+         },
+         {
+          "storage": "revision"
+         },
+         {
+          "storage": "presence"
+         },
+         {
+          "content": [
+           {
+            "content": [
+             {
+              "storage": "presence"
+             },
+             {
+              "storage": "revision"
+             }
+            ],
+            "storage": "{component}"
+           }
+          ],
+          "storage": "components"
+         }
+        ],
+        "storage": "snaps[{n}]"
+       },
+       {
+        "storage": "mode"
+       },
+       {
+        "storage": "status"
+       },
+       {
+        "storage": "sequence"
+       },
+       {
+        "storage": "revision"
+       },
+       {
+        "storage": "pinned-sequence"
+       }
+      ],
+      "request": "{account}.{validation-set}",
+      "storage": "v1.{account}.{validation-set}"
+     }
+    ],
+    "summary": "Read the validation sets state"
+   }
+  }
+ },
+ "body": "{\n  \"storage\": {\n    \"aliases\": {\n      \"account-id\": {\n        \"pattern\": \"^(?:[a-z0-9A-Z]{32}|[-a-z0-9]{2,28})$\",\n        \"type\": \"string\"\n      },\n      \"natural-number\": {\n        \"min\": 1,\n        \"type\": \"int\"\n      },\n      \"presence\": {\n        \"choices\": [\n          \"required\",\n          \"optional\",\n          \"invalid\"\n        ],\n        \"type\": \"string\"\n      },\n      \"set-name\": {\n        \"pattern\": \"^[a-z0-9](?:-?[a-z0-9])*$\",\n        \"type\": \"string\"\n      }\n    },\n    \"schema\": {\n      \"v1\": {\n        \"keys\": \"${account-id}\",\n        \"values\": {\n          \"keys\": \"${set-name}\",\n          \"values\": {\n            \"required\": [\n              \"mode\"\n            ],\n            \"schema\": {\n              \"mode\": {\n                \"choices\": [\n                  \"monitor\",\n                  \"enforce\"\n                ],\n                \"type\": \"string\"\n              },\n              \"pinned-sequence\": \"${natural-number}\",\n              \"revision\": \"${natural-number}\",\n              \"sequence\": \"${natural-number}\",\n              \"snaps\": {\n                \"type\": \"array\",\n                \"unique\": true,\n                \"values\": {\n                  \"schema\": {\n                    \"components\": {\n                      \"values\": {\n                        \"schema\": {\n                          \"presence\": \"${presence}\",\n                          \"revision\": \"${natural-number}\"\n                        }\n                      }\n                    },\n                    \"id\": \"string\",\n                    \"name\": \"string\",\n                    \"presence\": \"${presence}\",\n                    \"revision\": \"${natural-number}\"\n                  }\n                }\n              },\n              \"status\": {\n                \"choices\": [\n                  \"valid\",\n                  \"invalid\"\n                ],\n                \"type\": \"string\"\n              }\n            }\n          }\n        }\n      }\n    }\n  }\n}"
+}

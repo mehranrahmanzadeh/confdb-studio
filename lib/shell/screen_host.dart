@@ -1,0 +1,34 @@
+import 'package:flutter/material.dart';
+
+import '../screens/access/access_screen.dart';
+import '../screens/activity/activity_screen.dart';
+import '../screens/activity/change_detail_screen.dart';
+import '../screens/data/data_explorer_screen.dart';
+import '../screens/onboarding/onboarding_screen.dart';
+import '../screens/overview/overview_screen.dart';
+import '../screens/playground/playground_screen.dart';
+import '../screens/review/review_sheet.dart';
+import '../screens/schema_editor/schema_editor_screen.dart';
+import '../screens/schemas/schemas_list_screen.dart';
+import '../screens/sign/sign_dialog.dart';
+import '../data/models.dart';
+import '../state/app_controller.dart';
+
+/// Maps a route to its screen.
+Widget buildScreen(AppRoute route) => switch (route) {
+  OverviewRoute() => const OverviewScreen(),
+  DataRoute() => DataExplorerScreen(route: route),
+  ActivityRoute() => const ActivityScreen(),
+  AccessRoute() => AccessScreen(route: route),
+  SchemasRoute() => const SchemasListScreen(),
+  SchemaEditorRoute() => SchemaEditorScreen(route: route),
+  PlaygroundRoute() => PlaygroundScreen(route: route),
+  OnboardingRoute() => OnboardingScreen(route: route),
+  ChangeRoute(:final id) => ChangeDetailScreen(id: id),
+};
+
+/// Opens 7.5 Sign & acknowledge for a draft.
+void openSignDialog(BuildContext context, ConfdbSchema draft, ConfdbSchema? base) => showSignDialog(context, draft, base);
+
+/// Opens the Review & apply side sheet for everything staged.
+void openReview(BuildContext context) => showReviewSheet(context);

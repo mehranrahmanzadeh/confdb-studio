@@ -1,0 +1,387 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+
+import '../../data/models.dart';
+import '../../domain/values.dart';
+import '../../shell/screen_host.dart';
+import '../../state/app_controller.dart';
+import '../../state/app_scope.dart';
+import '../../state/staging_controller.dart';
+import '../../theme/app_theme.dart';
+import '../../util/format.dart';
+import '../../widgets/app_icons.dart';
+import '../../widgets/chips.dart';
+import '../../widgets/cli_disclosure.dart';
+import '../../widgets/code_text.dart';
+import '../../widgets/common.dart';
+import '../../widgets/status_badge.dart';
+import '../access/custodian_guide.dart';
+import 'data_explorer_screen.dart';
+import 'view_values.dart';
+
+/// Detail panel for one request path: metadata, editor, staged state, CLI.
+class EntryDetail extends StatefulWidget {
+  const EntryDetail({super.key, required this.snapshot, required this.entry, required this.ctx});
+
+  final ViewSnapshot snapshot;
+  final ViewEntry entry;
+  final ExplorerContext ctx;
+
+  @override
+  State<EntryDetail> createState() => _EntryDetailState();
+}
+
+class _EntryDetailState extends State<EntryDetail> {
+  late final TextEditingController _text;
+  bool _touched = false;
+  bool _reveal = false;
+
+  ViewEntry get e => widget.entry;
+  ViewRef get ref => widget.snapshot.ref;
+  StagedValue? get _staged => context.staging.lookup(ref, e.key);
+
+  bool _syncing = false;
+  Object? _lastStaged;
+  late final StagingController _staging = context.staging;
+
+  @override
+  void initState() {
+    super.initState();
+    final staged = context.staging.lookup(ref, e.key);
+    _lastStaged = staged?.value;
+    _text = TextEditingController(text: _editText(staged?.value ?? (e.masked ? null : e.value)));
+    _text.addListener(() {
+      if (!_syncing) setState(() => _touched = true);
+    });
+    _staging.addListener(_onStaging);
+  }
+
+  /// Follows values staged elsewhere (Retry with fix, Revert in the tray)
+  /// while the user hasn't typed here.
+  void _onStaging() {
+    final staged = context.staging.lookup(ref, e.key);
+    if (_touched || staged?.value == _lastStaged) return;
+    _lastStaged = staged?.value;
+    _syncing = true;
+    _text.text = _editText(staged?.value ?? (e.masked ? null : e.value));
+    _syncing = false;
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _staging.removeListener(_onStaging);
+    _text.dispose();
+    super.dispose();
+  }
+
+  String _editText(Object? v) {
+    if (v == null) return '';
+    if (v is String) return v;
+    return jsonEncode(v);
+  }
+
+  String? get _error => validateValue(e.node, _text.text, hint: e.hint);
+
+  bool get _differs {
+    final parsed = _tryParse();
+    if (parsed == null) return false;
+    final staged = _staged;
+    if (staged != null) return jsonEncode(parsed) != jsonEncode(staged.value) || staged.isRejected;
+    return e.masked || jsonEncode(parsed) != jsonEncode(e.value);
+  }
+
+  Object? _tryParse() {
+    try {
+      return parseInput(e.node, _text.text);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _stage(Object? value) {
+    final staging = context.staging;
+    if (!e.masked && jsonEncode(value) == jsonEncode(e.value)) {
+      staging.unstage(ref, e.key);
+      return;
+    }
+    staging.stage(
+      StagedValue(
+        view: ref,
+        key: e.key,
+        storagePath: e.rule.storage,
+        node: e.node,
+        before: e.masked ? null : e.value,
+        value: value,
+        secret: e.masked,
+      ),
+    );
+    _lastStaged = value;
+    setState(() => _touched = false);
+  }
+
+  void _revert() {
+    _touched = false;
+    context.staging.unstage(ref, e.key);
+    _syncing = true;
+    _text.text = _editText(e.masked ? null : e.value);
+    _syncing = false;
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final schema = widget.snapshot.schema;
+    final staged = _staged;
+    final others = otherViews(schema, ref.view, e.rule.storage);
+    final custodian = custodianName(ref, widget.ctx.snaps);
+    final custodianConnected = widget.ctx.snaps
+        .expand((s) => s.plugs)
+        .any((p) => p.role == PlugRole.custodian && p.view == ref && p.state.isConnected);
+    final node = e.node;
+
+    // Last successful change and, if newer, a failed attempt touching this path.
+    final related = widget.ctx.changes
+        .where((ch) => ch.view?.schemaId == ref.schemaId && ch.values.any((v) => v.storagePath == e.rule.storage))
+        .toList();
+    final lastDone = related.where((ch) => ch.status == ChangeStatus.done).firstOrNull;
+    final lastFailed = related.where((ch) => ch.status == ChangeStatus.error).firstOrNull;
+    final showAttempt = lastFailed != null && (lastDone == null || lastFailed.spawnTime.isAfter(lastDone.spawnTime));
+
+    Widget changeLink(ConfdbChange ch) => InkWell(
+      onTap: () => context.app.go(ChangeRoute(ch.id)),
+      child: Text(
+        '#${ch.id}',
+        style: context.text.bodyMedium?.mono.copyWith(
+          color: c.secondary,
+          decoration: TextDecoration.underline,
+          decorationColor: c.secondary,
+        ),
+      ),
+    );
+
+    final rows = <(String, Widget)>[
+      ('Storage path', MonoText(e.rule.storage)),
+      (
+        'Other views',
+        others.isEmpty
+            ? Text('None', style: TextStyle(color: c.onSurfaceVariant))
+            : Wrap(spacing: 6, runSpacing: 6, children: [for (final o in others) ViewChip(o, background: c.surfaceContainerLowest)]),
+      ),
+      (
+        'Custodian',
+        Row(
+          children: [
+            Icon(AppIcons.shield, size: 16, color: c.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Flexible(
+              child: custodianConnected
+                  ? MonoText(custodian!)
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        MonoText(custodian == null ? 'none connected' : '$custodian · not connected'),
+                        if (!schema.builtIn) CustodianHelpLink(schema: schema, snaps: widget.ctx.snaps, short: true),
+                      ],
+                    ),
+            ),
+          ],
+        ),
+      ),
+      if (e.hint?.description != null)
+        ('Validation', Text(e.hint!.description!))
+      else if (node != null && node.isEnum)
+        ('Constraints', CodeText('One of ${node.choices.map((x) => '`$x`').join(', ')}'))
+      else if (node?.constraintSummary != null)
+        ('Constraints', Text(node!.constraintSummary!)),
+      if (lastDone != null)
+        (
+          'Last changed',
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [changeLink(lastDone), Text(' · ${dayAndTime(lastDone.spawnTime)}')],
+          ),
+        ),
+      if (showAttempt)
+        (
+          'Last attempt',
+          Wrap(
+            spacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [changeLink(lastFailed), const StatusBadge.error('Error')],
+          ),
+        ),
+    ];
+
+    final values = staged != null && !_touched ? staged.value : _tryParse();
+    final command = e.rule.access.canWrite
+        ? snapSetCommand(ref, [(e.key, values ?? (e.masked ? '' : e.value), e.masked)])
+        : 'snap get ${ref.path} ${e.key}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Semantics(header: true, child: Text(e.key, style: context.text.titleLarge?.mono)),
+            TypeChip(e.typeLabel),
+            StatusBadge.neutral(e.writeOnly ? 'write-only' : e.rule.access.label, icon: AccessLabel.iconFor(e.rule.access)),
+            if (e.ephemeral) const EphemeralChip(),
+            if (e.secret) const SecretChip(),
+          ],
+        ),
+        const SizedBox(height: 16),
+        DetailList(rows: rows),
+        const SizedBox(height: 16),
+        const Divider(),
+        const SizedBox(height: 16),
+        ..._editor(context, staged),
+        const SizedBox(height: 16),
+        Align(alignment: Alignment.centerLeft, child: CliDisclosure(command)),
+      ],
+    );
+  }
+
+  List<Widget> _editor(BuildContext context, StagedValue? staged) {
+    final c = context.colors;
+    final node = e.node;
+    if (!e.rule.access.canWrite) {
+      return [
+        InlineMessage(
+          kind: MessageKind.info,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          title: 'Read-only through ${ref.view}',
+          body: e.ephemeral
+              ? CodeText(
+                  'Loaded by `${custodianName(ref, widget.ctx.snaps) ?? 'the custodian'}`’s load-view hook each time it is read; it is never stored.',
+                )
+              : const Text('Pick a view with write access to change this value.'),
+        ),
+      ];
+    }
+
+    final widgets = <Widget>[];
+
+    if (node != null && node.isEnum) {
+      final current = e.value as String?;
+      final selected = (staged?.value as String?) ?? current;
+      widgets.add(
+        LayoutBuilder(
+          builder: (context, constraints) => DropdownMenu<String>(
+            width: constraints.maxWidth,
+            initialSelection: selected,
+            label: const Text('Value'),
+            helperText: 'One of ${node.choices.join(', ')}',
+            textStyle: context.text.bodyLarge?.mono.copyWith(fontSize: 15),
+            requestFocusOnTap: false,
+            onSelected: (v) => v == null ? null : _stage(v),
+            dropdownMenuEntries: [
+              for (final o in node.choices)
+                DropdownMenuEntry(
+                  value: o,
+                  label: o,
+                  style: MenuItemButton.styleFrom(
+                    textStyle: context.text.bodyLarge?.mono.copyWith(fontSize: 15),
+                    minimumSize: const Size(0, 48),
+                  ),
+                  leadingIcon: SizedBox(width: 20, child: o == selected ? const Icon(AppIcons.check, size: 20) : null),
+                  trailingIcon: Text(
+                    o == current ? 'current' : (o == staged?.value ? 'staged' : ''),
+                    style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    } else {
+      final error = _touched || (staged?.isRejected ?? false) ? _error : null;
+      final rejected = staged?.isRejected == true && !_touched;
+      final min = e.hint?.minLength;
+      widgets.add(
+        TextField(
+          controller: _text,
+          obscureText: e.masked && !_reveal,
+          style: context.text.bodyLarge?.mono.copyWith(letterSpacing: e.masked && !_reveal ? 2 : null),
+          maxLines: e.masked ? 1 : null,
+          decoration: InputDecoration(
+            labelText: e.masked ? 'New value' : 'Value',
+            helperText: e.writeOnly
+                ? 'Write-only: the current value can’t be read back'
+                : e.secret
+                ? 'Secret: snapd only shows it to admins'
+                : node?.constraintSummary,
+            errorText: rejected ? null : (error == null ? null : 'Error: $error'),
+            error: rejected ? const SizedBox.shrink() : null,
+            counterText: min != null ? '${_text.text.length} / $min' : null,
+            suffixIcon: e.masked
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (error != null || rejected) Icon(AppIcons.error, color: c.error),
+                      IconButton(
+                        tooltip: _reveal ? 'Hide value' : 'Show value',
+                        onPressed: () => setState(() => _reveal = !_reveal),
+                        icon: Icon(_reveal ? AppIcons.eyeOff : AppIcons.eye),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                  )
+                : null,
+          ),
+        ),
+      );
+      if (rejected) {
+        widgets.addAll([
+          const SizedBox(height: 8),
+          InlineMessage(
+            kind: MessageKind.error,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            title: 'Rejected by ${staged!.rejectedBy ?? 'the custodian'}',
+            body: CodeText('In change #${staged.fromChange}: `${staged.rejection}`'),
+            actions: [
+              OnContainerButton(label: 'Retry', icon: AppIcons.retry, outlined: false, onPressed: () => openReview(context)),
+              OnContainerButton(label: 'View change', outlined: false, onPressed: () => context.app.go(ChangeRoute(staged.fromChange!))),
+            ],
+          ),
+        ]);
+      }
+    }
+
+    widgets.add(const SizedBox(height: 12));
+    if (staged != null && !staged.isRejected && !_touched) {
+      widgets.add(
+        Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            const StatusBadge.info('Staged', icon: AppIcons.edit),
+            Text(
+              staged.secret ? '$secretMask (hidden)' : '${staged.beforeText} → ${staged.afterText}',
+              style: context.text.bodyMedium?.mono.copyWith(fontSize: 13),
+            ),
+            TextButton(onPressed: _revert, child: const Text('Revert')),
+          ],
+        ),
+      );
+    } else if (!(node?.isEnum ?? false)) {
+      final canStage = _error == null && _differs;
+      widgets.add(
+        Wrap(
+          spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SecondaryButton(label: 'Stage change', icon: AppIcons.edit, onPressed: canStage ? () => _stage(_tryParse()) : null),
+            if (staged != null) TextButton(onPressed: _revert, child: const Text('Revert')),
+          ],
+        ),
+      );
+    }
+    return widgets;
+  }
+}
