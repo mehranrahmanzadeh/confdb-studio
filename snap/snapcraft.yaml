@@ -39,10 +39,5 @@ parts:
     source: .
     plugin: flutter
     flutter-target: lib/main.dart
-    build-attributes:
-      - enable-patchelf
     build-packages:
       - pkg-config
-      - libgtk-3-dev
-    stage-packages:
-      - libgtk-3-0t64
