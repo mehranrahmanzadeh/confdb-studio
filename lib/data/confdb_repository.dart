@@ -29,6 +29,10 @@ abstract interface class ConfdbRepository {
   /// registering signing keys needs (`snapcraft whoami`).
   Future<StoreAccount> storeAccount();
 
+  /// The account assertion for [accountId] (on the device, else from the
+  /// store), or null if neither has it.
+  Future<AccountInfo?> account(String accountId);
+
   /// Acknowledged schemas, including built-in ones.
   Future<List<ConfdbSchema>> listSchemas();
 

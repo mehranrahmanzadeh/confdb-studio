@@ -1,35 +1,57 @@
 // Schema analysis that doesn't need snapd: lint, quick-fix suggestions and the
 // revision diff shown before signing.
 import '../data/models.dart';
+import 'paths.dart';
 
-/// Resolves a storage path, treating `{placeholder}` segments as any key of a
-/// map with typed values.
+/// Resolves a storage path to its definition. A `{placeholder}` or concrete
+/// key under a map with typed values gives the values' definition; `[0]` and
+/// `[{n}]` give an array's elements; anything under `any` is `any`. Field
+/// filters don't change what a path points to.
 StorageNode? resolveStoragePath(StorageNode root, String path) {
-  StorageNode node = root;
-  for (final seg in path.split('.')) {
-    if (seg.startsWith('{') && seg.endsWith('}')) {
-      if (!node.isMap || node.valuesType == null) return null;
-      node = StorageNode(key: seg, kind: _kindFromName(node.valuesType!));
-      continue;
-    }
-    final next = node.children.where((c) => c.key == seg).firstOrNull;
-    if (next == null) return null;
-    node = next;
-  }
-  return node;
+  final segs = tryParsePath(path);
+  return segs == null ? null : _resolve(root, segs, 0);
 }
 
-StorageKind _kindFromName(String name) => StorageKind.values.where((k) => k.name == name).firstOrNull ?? StorageKind.any;
+StorageNode? _resolve(StorageNode node, List<PathSegment> segs, int i) {
+  if (i == segs.length) return node;
+  final s = segs[i];
+  if (node.kind == StorageKind.any && node.alternatives.isEmpty) return StorageNode(key: s.toString(), kind: StorageKind.any);
+  if (s.isIndex) {
+    final element = node.kind == StorageKind.array ? node.element : null;
+    return element == null ? null : _resolve(element, segs, i + 1);
+  }
+  if (!node.isMap) return null;
+  if (s.kind == SegmentKind.key) {
+    final child = node.children.where((c) => c.key == s.name).firstOrNull;
+    if (child != null) return _resolve(child, segs, i + 1);
+  }
+  if (node.children.isEmpty) {
+    final element = node.element;
+    return element == null ? null : _resolve(element, segs, i + 1);
+  }
+  // A placeholder over a map with fixed keys stands for any of them.
+  if (s.kind == SegmentKind.keyPlaceholder) {
+    for (final c in node.children) {
+      final r = _resolve(c, segs, i + 1);
+      if (r != null) return r;
+    }
+  }
+  return null;
+}
 
-/// True when [rulePath] covers [storagePath] (equal, a parent, or a placeholder).
+/// True when [rulePath] covers [storagePath]: equal or a parent of it,
+/// segment by segment, where a placeholder on either side matches any key or
+/// index. Field filters are ignored.
 bool ruleCovers(String rulePath, String storagePath) {
   if (rulePath == storagePath || storagePath.startsWith('$rulePath.')) return true;
-  final r = rulePath.split('.');
-  final s = storagePath.split('.');
-  if (r.length > s.length) return false;
+  final r = tryParsePath(rulePath);
+  final s = tryParsePath(storagePath);
+  if (r == null || s == null || r.length > s.length) return false;
   for (var i = 0; i < r.length; i++) {
-    if (r[i].startsWith('{') && r[i].endsWith('}')) continue;
-    if (r[i] != s[i]) return false;
+    final (a, b) = (r[i], s[i]);
+    if (a.toString() == b.toString()) continue;
+    if (a.isIndex != b.isIndex) return false;
+    if (!a.isPlaceholder && !b.isPlaceholder) return false;
   }
   return true;
 }
@@ -37,7 +59,15 @@ bool ruleCovers(String rulePath, String storagePath) {
 enum LintSeverity { error, warning }
 
 class LintIssue {
-  const LintIssue({required this.severity, required this.message, this.view, this.request, this.storagePath, this.suggestedLeaf});
+  const LintIssue({
+    required this.severity,
+    required this.message,
+    this.view,
+    this.request,
+    this.storagePath,
+    this.suggestedLeaf,
+    this.detail,
+  });
 
   final LintSeverity severity;
 
@@ -49,6 +79,9 @@ class LintIssue {
 
   /// For a missing storage path: the leaf the quick fix would add.
   final StorageNode? suggestedLeaf;
+
+  /// Shorter wording for under the rule's own row, without the view prefix.
+  final String? detail;
 
   bool get isError => severity == LintSeverity.error;
 }
@@ -83,6 +116,33 @@ List<LintIssue> lintSchema(ConfdbSchema schema) {
           ),
         );
       }
+      final pathProblems = checkRulePaths(rule.request, rule.storage);
+      for (final p in pathProblems) {
+        issues.add(
+          LintIssue(
+            severity: p.isError ? LintSeverity.error : LintSeverity.warning,
+            message: '`${view.name}` › ${p.message}',
+            view: view.name,
+            request: rule.request,
+            storagePath: rule.storage,
+            detail: p.message,
+          ),
+        );
+      }
+      if (pathProblems.any((p) => p.isError)) continue;
+      final filtered = _filterOnNonMap(schema.storage, rule.storage);
+      if (filtered != null) {
+        issues.add(
+          LintIssue(
+            severity: LintSeverity.error,
+            message: '`${view.name}` › `${rule.request}`: field filters only work on maps, but `$filtered` isn’t one',
+            view: view.name,
+            request: rule.request,
+            storagePath: rule.storage,
+            detail: 'field filters only work on maps, but `$filtered` isn’t one',
+          ),
+        );
+      }
       if (resolveStoragePath(schema.storage, rule.storage) == null) {
         issues.add(
           LintIssue(
@@ -91,14 +151,19 @@ List<LintIssue> lintSchema(ConfdbSchema schema) {
             view: view.name,
             request: rule.request,
             storagePath: rule.storage,
-            suggestedLeaf: suggestLeaf(rule.storage),
+            detail: '`${rule.storage}` does not exist in storage',
+            // Adding a leaf only makes sense for a plain dotted path.
+            suggestedLeaf: tryParsePath(rule.storage)?.every((x) => x.kind == SegmentKind.key && x.filters.isEmpty) ?? false
+                ? suggestLeaf(rule.storage)
+                : null,
           ),
         );
       }
     }
   }
   for (final (path, _) in schema.storage.leaves()) {
-    final exposed = schema.views.any((v) => v.rules.any((r) => ruleCovers(r.storage, path)));
+    // A rule exposes a leaf when it covers it or reaches inside it (`list[{n}]`).
+    final exposed = schema.views.any((v) => v.rules.any((r) => ruleCovers(r.storage, path) || ruleCovers(path, r.storage)));
     if (!exposed) {
       issues.add(
         LintIssue(severity: LintSeverity.warning, message: '`$path` is defined in storage but no view rule exposes it', storagePath: path),
@@ -106,6 +171,19 @@ List<LintIssue> lintSchema(ConfdbSchema schema) {
     }
   }
   return issues;
+}
+
+/// The first filtered part of [storage] that resolves to something other
+/// than a map, as a path; null when every filter is on a map (or unresolved).
+String? _filterOnNonMap(StorageNode root, String storage) {
+  final segs = tryParsePath(storage) ?? const <PathSegment>[];
+  for (var i = 0; i < segs.length; i++) {
+    if (segs[i].filters.isEmpty) continue;
+    final at = joinPath(segs.take(i + 1));
+    final node = resolveStoragePath(root, at);
+    if (node != null && !node.isMap && node.kind != StorageKind.any) return at;
+  }
+  return null;
 }
 
 const _liveNames = {'status', 'state', 'signal', 'strength', 'rssi', 'quality', 'uptime', 'connected', 'online'};
@@ -135,7 +213,7 @@ class SchemaDiffLine {
   const SchemaDiffLine({required this.added, required this.where, required this.what});
   final bool added;
 
-  /// View name, or `storage`.
+  /// View name, `storage` or `summary`.
   final String where;
   final String what;
 }
@@ -144,6 +222,11 @@ class SchemaDiffLine {
 List<SchemaDiffLine> diffSchemas(ConfdbSchema? base, ConfdbSchema draft) {
   final lines = <SchemaDiffLine>[];
   String rule(ViewRule r) => '${r.request} → ${r.storage}  ·  ${r.access.label}';
+
+  if (base != null && base.summary != draft.summary) {
+    if (base.summary.isNotEmpty) lines.add(SchemaDiffLine(added: false, where: 'summary', what: base.summary));
+    if (draft.summary.isNotEmpty) lines.add(SchemaDiffLine(added: true, where: 'summary', what: draft.summary));
+  }
 
   final viewNames = <String>{...?base?.views.map((v) => v.name), ...draft.views.map((v) => v.name)};
   for (final name in viewNames) {

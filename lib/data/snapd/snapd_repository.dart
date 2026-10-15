@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../domain/analysis.dart';
+import '../../domain/paths.dart';
 import '../../domain/schema_codec.dart';
 import '../../domain/values.dart';
 import '../confdb_repository.dart';
@@ -23,10 +24,27 @@ class SnapdRepository implements ConfdbRepository {
     this.snapCommand = 'snap',
     this.snapcraftCommand = 'snapcraft',
     SnapdTransport? elevated,
-  }) : _drafts = drafts ?? FileDraftStore(),
+    Future<List<String>?> Function(String snap)? readHooks,
+  }) : _readHooks = readHooks ?? _hooksOnDisk,
+       _drafts = drafts ?? FileDraftStore(),
        _elevated = elevated ?? SnapCommandTransport(snap: snapCommand);
 
   final SnapdTransport transport;
+
+  /// The hooks a snap ships, or null when they can't be read.
+  final Future<List<String>?> Function(String snap) _readHooks;
+
+  /// snapd takes a snap's hooks from the executables in its `meta/hooks`,
+  /// which installed snaps expose world-readable under /snap.
+  static Future<List<String>?> _hooksOnDisk(String snap) async {
+    final dir = Directory('/snap/$snap/current/meta/hooks');
+    try {
+      if (!await dir.exists()) return const [];
+      return [await for (final e in dir.list()) e.uri.pathSegments.lastWhere((s) => s.isNotEmpty)];
+    } on FileSystemException {
+      return null;
+    }
+  }
 
   /// Runs writes as root (`pkexec snap debug api`) when snapd refuses them on
   /// [transport]: some endpoints, like installing assertions, accept only root,
@@ -157,6 +175,30 @@ class SnapdRepository implements ConfdbRepository {
     return StoreAccount(login: StoreLogin.loggedIn, username: field('username'), email: field('email'), accountId: field('id'));
   }
 
+  /// `snap known account account-id=<id>`, then `--remote`.
+  @override
+  Future<AccountInfo?> account(String accountId) async {
+    for (final remote in [false, true]) {
+      final SnapdResponse res;
+      try {
+        res = await transport.request(
+          'GET',
+          '/v2/assertions/account',
+          query: {'json': 'true', 'account-id': accountId, if (remote) 'remote': 'true'},
+        );
+      } on Exception {
+        // Offline, or snapd too old to query: show the ID itself.
+        continue;
+      }
+      if (res.isError) continue;
+      final headers = (res.result as List? ?? const []).whereType<Map>().map((a) => a['headers']).whereType<Map>().firstOrNull;
+      if (headers == null) continue;
+      String? field(String k) => (headers[k] as String?)?.trim().isEmpty ?? true ? null : (headers[k] as String).trim();
+      return AccountInfo(id: accountId, username: field('username'), displayName: field('display-name'));
+    }
+    return null;
+  }
+
   // --------------------------------------------------------------- schemas
 
   @override
@@ -224,20 +266,6 @@ class SnapdRepository implements ConfdbRepository {
     return s;
   }
 
-  /// Looks a request path up in a get result, flat (`"a.b": v`) or nested.
-  static (bool, Object?) _lookup(Map result, String path) {
-    if (result.containsKey(path)) return (true, result[path]);
-    Object? node = result;
-    for (final seg in path.split('.')) {
-      if (node is Map && node.containsKey(seg)) {
-        node = node[seg];
-      } else {
-        return (false, null);
-      }
-    }
-    return (true, node);
-  }
-
   @override
   Future<ViewSnapshot> readView(ViewRef ref) async {
     final schema = await _schema(ref.schemaId);
@@ -276,7 +304,8 @@ class SnapdRepository implements ConfdbRepository {
       for (final rule in view.rules)
         () {
           final node = resolveStoragePath(schema.storage, rule.storage);
-          final (has, value) = _lookup(values, rule.request);
+          // A placeholder rule gets the whole collection (e.g. every sensor).
+          final (has, value) = lookupValue(values, rule.request);
           final ephemeralFailed = failure != null && (node?.ephemeral ?? false);
           return ViewEntry(
             rule: rule,
@@ -507,6 +536,7 @@ class SnapdRepository implements ConfdbRepository {
     if (names.isEmpty) return const [];
     final info = await _sync('GET', '/v2/snaps', query: {'snaps': names.join(',')}) as List? ?? const [];
     final byName = {for (final s in info.cast<Map>()) s['name'] as String: s};
+    final hooks = {for (final n in names) n: await _readHooks(n)};
     return [
       for (final n in names)
         () {
@@ -521,6 +551,8 @@ class SnapdRepository implements ConfdbRepository {
             publisherSigned: !local,
             installNote: local ? 'installed from a local file' : null,
             plugs: plugs.where((p) => p.snap == n).toList(),
+            hooks: [for (final h in hooks[n] ?? const <String>[]) DeclaredHook(h)],
+            hooksKnown: hooks[n] != null,
           );
         }(),
     ];

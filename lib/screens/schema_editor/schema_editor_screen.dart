@@ -21,6 +21,7 @@ import '../../widgets/domain_badges.dart';
 import '../../widgets/loader.dart';
 import '../../widgets/resize_handle.dart';
 import '../../widgets/status_badge.dart';
+import '../playground/playground_screen.dart';
 import 'rules_table.dart';
 import 'storage_node_dialog.dart';
 import 'storage_pane.dart';
@@ -28,7 +29,8 @@ import 'views_pane.dart';
 
 /// How many views map each storage leaf.
 Map<String, int> storageUsage(ConfdbSchema s) => {
-  for (final (path, _) in s.storage.leaves()) path: s.views.where((v) => v.rules.any((r) => ruleCovers(r.storage, path))).length,
+  for (final (path, _) in s.storage.leaves())
+    path: s.views.where((v) => v.rules.any((r) => ruleCovers(r.storage, path) || ruleCovers(path, r.storage))).length,
 };
 
 class _EditorData {
@@ -43,10 +45,11 @@ Future<_EditorData> _load(ConfdbRepository repo) async {
   return _EditorData(r[0] as List<ConfdbSchema>, r[1] as List<ConfdbSchema>, r[2] as List<SnapInfo>);
 }
 
-/// 7.4 Schema editor (SchemaEditor.dc.html, -JSON, -Fixed).
+/// 7.4 Schema editor (SchemaEditor.dc.html, -JSON, -Fixed), and on a
+/// [PlaygroundRoute] its playground step, under the same header.
 class SchemaEditorScreen extends StatelessWidget {
   const SchemaEditorScreen({super.key, required this.route});
-  final SchemaEditorRoute route;
+  final AuthoringRoute route;
 
   @override
   Widget build(BuildContext context) => Loader<_EditorData>(
@@ -94,7 +97,7 @@ class SchemaEditorScreen extends StatelessWidget {
 
 class _Editor extends StatefulWidget {
   const _Editor({required this.route, required this.base, required this.snaps, required this.initial});
-  final SchemaEditorRoute route;
+  final AuthoringRoute route;
 
   /// Installed snaps, to name the plugs a deleted view leaves behind.
   final List<SnapInfo> snaps;
@@ -110,12 +113,22 @@ class _Editor extends StatefulWidget {
 class _EditorState extends State<_Editor> {
   late ConfdbSchema _draft = widget.initial;
   late String? _view = widget.route.view ?? widget.initial.views.firstOrNull?.name;
-  late String? _focusPath = widget.route.focusStoragePath;
+  late String? _focusPath = _editRoute?.focusStoragePath;
   String? _focusRule;
   bool _json = false;
   Timer? _save;
 
   SchemaId get id => _draft.id;
+
+  SchemaEditorRoute? get _editRoute => switch (widget.route) {
+    final SchemaEditorRoute r => r,
+    PlaygroundRoute() => null,
+  };
+
+  PlaygroundRoute? get _playRoute => switch (widget.route) {
+    final PlaygroundRoute r => r,
+    SchemaEditorRoute() => null,
+  };
 
   @override
   void initState() {
@@ -132,7 +145,11 @@ class _EditorState extends State<_Editor> {
     super.didUpdateWidget(old);
     final r = widget.route;
     if (r.view != null && r.view != _view) _view = r.view;
-    if (r.focusStoragePath != old.route.focusStoragePath) _focusPath = r.focusStoragePath;
+    if (r is SchemaEditorRoute &&
+        old.route is SchemaEditorRoute &&
+        r.focusStoragePath != (old.route as SchemaEditorRoute).focusStoragePath) {
+      _focusPath = r.focusStoragePath;
+    }
   }
 
   @override
@@ -235,9 +252,42 @@ class _EditorState extends State<_Editor> {
     setState(() => _focusPath = edit.path);
   }
 
+  /// Gives the empty map at [mapPath] a placeholder: any key, typed values.
+  Future<void> _addPlaceholder(String mapPath) async {
+    final edit = await showStorageNodeDialog(
+      context,
+      draft: _draft,
+      placeholderOf: mapPath,
+      snapdVersion: context.app.status?.snapdVersion,
+    );
+    if (edit == null || !mounted) return;
+    _setPlaceholder(mapPath, edit);
+    setState(() => _focusPath = edit.path);
+  }
+
+  void _setPlaceholder(String mapPath, StorageEdit edit) {
+    final map = _draft.storage.lookup(mapPath)!.withElement(edit.node).withKeys(edit.keys);
+    _update(
+      _draft.copyWith(
+        storage: replaceAt(_draft.storage, mapPath, map),
+        addedInDraft: {
+          // Keys under a placeholder that stopped being a map go with it.
+          for (final p in _draft.addedInDraft)
+            if (edit.node.isMap || !p.startsWith('${edit.path}.')) p,
+          if (_draft.storage.lookup(edit.path) == null) edit.path,
+        },
+      ),
+    );
+  }
+
   Future<void> _editNode(String path) async {
     final edit = await showStorageNodeDialog(context, draft: _draft, path: path, snapdVersion: context.app.status?.snapdVersion);
     if (edit == null || !mounted) return;
+    if (edit.placeholder) {
+      _setPlaceholder(edit.parent!, edit);
+      setState(() => _focusPath = edit.path);
+      return;
+    }
     var views = _draft.views;
     var added = _draft.addedInDraft;
     // A map that became a leaf loses its children.
@@ -288,6 +338,14 @@ class _EditorState extends State<_Editor> {
       ),
     );
   }
+
+  Future<void> _openPlayground() async {
+    final app = context.app;
+    await _flush();
+    if (_view != null) app.go(PlaygroundRoute(id, view: _view!));
+  }
+
+  void _backToEditor() => context.app.go(SchemaEditorRoute(id, view: _view, focusStoragePath: _focusPath));
 
   void _showInStorage(String path) => setState(() {
     _focusPath = path;
@@ -344,13 +402,6 @@ class _EditorState extends State<_Editor> {
       onGoToRule: (v, r) => _selectView(v, rule: r),
       onShowInStorage: _showInStorage,
       onDeleteView: view == null ? null : () => _deleteView(view),
-      onPlayground: view == null
-          ? null
-          : () async {
-              final app = context.app;
-              await _flush();
-              app.go(PlaygroundRoute(id, view: view.name));
-            },
       compactViews: compact ? ViewsSelect(draft: _draft, selected: _view, issues: issues, onSelect: _selectView, onAdd: _addView) : null,
     );
     final storage = StoragePane(
@@ -361,11 +412,13 @@ class _EditorState extends State<_Editor> {
       onJson: (v) => setState(() => _json = v),
       onStorage: (root) => _update(_draft.copyWith(storage: root)),
       onAdd: _addNode,
+      onAddPlaceholder: _addPlaceholder,
       onEdit: _editNode,
       onDelete: _deleteNode,
       compact: compact,
     );
 
+    final play = _playRoute;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -373,13 +426,28 @@ class _EditorState extends State<_Editor> {
           draft: _draft,
           base: widget.base,
           issues: issues,
+          playground: play != null,
+          onSummary: (v) => _update(_draft.copyWith(summary: v)),
+          onNext: _view == null ? null : _openPlayground,
+          onBack: _backToEditor,
           onSign: () async {
             await _flush();
             if (context.mounted) openSignDialog(context, _draft, widget.base);
           },
         ),
         Expanded(
-          child: compact
+          child: play != null
+              ? PlaygroundPanel(
+                  key: ValueKey('playground:${play.view}'),
+                  draft: _draft,
+                  snaps: widget.snaps,
+                  route: play,
+                  onView: (v) {
+                    _view = v;
+                    context.app.replace(PlaygroundRoute(id, view: v));
+                  },
+                )
+              : compact
               ? SingleChildScrollView(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [center, storage]),
                 )
@@ -398,17 +466,32 @@ class _EditorState extends State<_Editor> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.draft, required this.base, required this.issues, required this.onSign});
+  const _Header({
+    required this.draft,
+    required this.base,
+    required this.issues,
+    required this.playground,
+    required this.onSummary,
+    required this.onNext,
+    required this.onBack,
+    required this.onSign,
+  });
   final ConfdbSchema draft;
   final ConfdbSchema? base;
   final List<LintIssue> issues;
+
+  /// On the playground step: Back and Sign & acknowledge instead of Next.
+  final bool playground;
+  final ValueChanged<String> onSummary;
+  final VoidCallback? onNext;
+  final VoidCallback onBack;
   final VoidCallback onSign;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final errors = issues.where((i) => i.isError).length;
-    final current = errors > 0 ? 2 : 3;
+    final current = playground ? _Stepper.playground : _Stepper.lint;
     final origin = base?.revision == null ? 'Local draft · new schema' : 'Local draft · based on signed rev ${base!.revision}';
 
     return Container(
@@ -432,19 +515,28 @@ class _Header extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(draft.id.name, style: context.text.titleMedium?.mono.copyWith(fontWeight: FontWeight.w600)),
+                  _SummaryField(summary: draft.summary, onChanged: onSummary),
                   Text(origin, style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
                 ],
               ),
-              _Stepper(current: current),
+              _Stepper(current: current, lintClean: errors == 0),
             ],
           ),
           Wrap(
-            spacing: 24,
+            spacing: 12,
             runSpacing: 12,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               lintBadge(issues, prefix: 'Lint: '),
-              PrimaryButton(label: 'Sign & acknowledge', icon: AppIcons.verified, onPressed: errors > 0 ? null : onSign),
+              if (playground) ...[
+                TertiaryButton(label: 'Back', icon: AppIcons.back, onPressed: onBack),
+                // Playground results are only for trying things; lint errors still block signing.
+                PrimaryButton(label: 'Sign & acknowledge', icon: AppIcons.verified, onPressed: errors > 0 ? null : onSign),
+              ] else
+                Tooltip(
+                  message: errors > 0 ? 'Fix the lint errors first' : 'Try the draft in the view playground, then sign',
+                  child: PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
+                ),
             ],
           ),
         ],
@@ -453,12 +545,78 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// Authoring progress: Storage › Views › Lint › Sign & acknowledge.
+/// The schema's one-line `summary` header, edited in place.
+class _SummaryField extends StatefulWidget {
+  const _SummaryField({required this.summary, required this.onChanged});
+  final String summary;
+  final ValueChanged<String> onChanged;
+
+  @override
+  State<_SummaryField> createState() => _SummaryFieldState();
+}
+
+class _SummaryFieldState extends State<_SummaryField> {
+  late final _text = TextEditingController(text: widget.summary);
+
+  @override
+  void didUpdateWidget(_SummaryField old) {
+    super.didUpdateWidget(old);
+    if (widget.summary != _text.text.trim()) _text.text = widget.summary;
+  }
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final style = context.text.bodyMedium;
+    // As wide as the text, so the pencil sits right after it.
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 160, maxWidth: 360),
+      child: IntrinsicWidth(
+        child: Semantics(
+          label: 'Schema summary',
+          child: TextField(
+            controller: _text,
+            style: style,
+            maxLines: 1,
+            onChanged: (v) => widget.onChanged(v.trim()),
+            decoration: InputDecoration(
+              isDense: true,
+              filled: false,
+              hintText: 'Add a summary',
+              hintStyle: style?.copyWith(color: c.onSurfaceVariant),
+              contentPadding: const EdgeInsets.symmetric(vertical: 4),
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.secondary)),
+              suffixIcon: Tooltip(
+                message: 'Summary',
+                child: Icon(AppIcons.edit, size: 16, color: c.onSurfaceVariant),
+              ),
+              suffixIconConstraints: const BoxConstraints(minWidth: 24, minHeight: 20),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Authoring progress: Storage › Views › Lint › Playground › Sign.
 class _Stepper extends StatelessWidget {
-  const _Stepper({required this.current});
+  const _Stepper({required this.current, required this.lintClean});
   final int current;
 
-  static const _labels = ['Storage', 'Views', 'Lint', 'Sign & acknowledge'];
+  /// The editor sits on Lint; once it's clean the step shows a check.
+  final bool lintClean;
+
+  static const lint = 2, playground = 3;
+  static const _labels = ['Storage', 'Views', 'Lint', 'Playground', 'Sign'];
 
   @override
   Widget build(BuildContext context) {
@@ -472,25 +630,35 @@ class _Stepper extends StatelessWidget {
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           for (var i = 0; i < _labels.length; i++) ...[
-            Container(
-              width: 24,
-              height: 24,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: i < current ? c.secondaryContainer : (i == current ? c.primary : Colors.transparent),
-                border: i > current ? Border.all(color: c.outline) : null,
-              ),
-              child: i < current
-                  ? Icon(AppIcons.check, size: 16, color: c.onSecondaryContainer)
-                  : Text(
-                      '${i + 1}',
-                      style: context.text.labelMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: i == current ? c.onPrimary : c.onSurfaceVariant,
+            if (i == lint && !lintClean && i < current)
+              // Reached the playground with lint errors: Lint isn't done.
+              Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(shape: BoxShape.circle, color: c.errorContainer),
+                child: Icon(AppIcons.error, size: 16, color: c.onErrorContainer),
+              )
+            else
+              Container(
+                width: 24,
+                height: 24,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: i < current ? c.secondaryContainer : (i == current ? c.primary : Colors.transparent),
+                  border: i > current ? Border.all(color: c.outline) : null,
+                ),
+                child: i < current || (i == lint && lintClean)
+                    ? Icon(AppIcons.check, size: 16, color: i == current ? c.onPrimary : c.onSecondaryContainer)
+                    : Text(
+                        '${i + 1}',
+                        style: context.text.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: i == current ? c.onPrimary : c.onSurfaceVariant,
+                        ),
                       ),
-                    ),
-            ),
+              ),
             Text(
               _labels[i],
               style: context.text.bodyMedium?.copyWith(
@@ -498,7 +666,7 @@ class _Stepper extends StatelessWidget {
                 color: i <= current ? c.onSurface : c.onSurfaceVariant,
               ),
             ),
-            if (i < _labels.length - 1) Container(width: 28, height: 1, color: c.outline),
+            if (i < _labels.length - 1) Container(width: 20, height: 1, color: c.outline),
           ],
         ],
       ),
@@ -517,7 +685,6 @@ class _Center extends StatelessWidget {
     required this.onGoToRule,
     required this.onShowInStorage,
     required this.onDeleteView,
-    required this.onPlayground,
     required this.compactViews,
   });
 
@@ -530,7 +697,6 @@ class _Center extends StatelessWidget {
   final void Function(String view, String? rule) onGoToRule;
   final ValueChanged<String> onShowInStorage;
   final VoidCallback? onDeleteView;
-  final VoidCallback? onPlayground;
   final Widget? compactViews;
 
   @override
@@ -579,15 +745,7 @@ class _Center extends StatelessWidget {
                   ],
                 ),
               ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  SecondaryButton(label: 'Test in playground', icon: AppIcons.play, onPressed: onPlayground),
-                  IconButton(tooltip: 'Delete view ${v.name}', onPressed: onDeleteView, icon: const Icon(AppIcons.delete)),
-                ],
-              ),
+              IconButton(tooltip: 'Delete view ${v.name}', onPressed: onDeleteView, icon: const Icon(AppIcons.delete)),
             ],
           ),
           const SizedBox(height: 16),

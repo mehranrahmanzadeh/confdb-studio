@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:confdb_studio/app.dart';
 import 'package:confdb_studio/data/fake/fake_repository.dart';
+import 'package:confdb_studio/data/fake/sample_data.dart';
 import 'package:confdb_studio/data/models.dart';
 import 'package:confdb_studio/data/snapd/snapd_repository.dart';
 import 'package:confdb_studio/data/snapd/transport.dart';
@@ -73,12 +74,14 @@ void main() {
     await tester.pumpWidget(
       ConfdbStudioApp(
         repository: FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero, noKeys: true)),
-        initialRoute: const SchemaEditorRoute(SchemaId('acme', 'network')),
+        initialRoute: const SchemaEditorRoute(networkId),
       ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('Add wifi.signal'));
     await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Sign & acknowledge').last);
     await tester.pumpAndSettle();
     expect(find.text('No signing keys found'), findsOneWidget);

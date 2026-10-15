@@ -11,6 +11,8 @@ import '../../widgets/cli_disclosure.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
 import '../schemas/schemas_list_screen.dart';
+import '../../state/account_names.dart';
+import '../../widgets/account_name.dart';
 
 /// 7.1 Onboarding (Onboarding.dc.html, Onboarding-Choose).
 class OnboardingScreen extends StatelessWidget {
@@ -127,14 +129,17 @@ class _ChooseState extends State<_Choose> {
   bool _import = false;
   String _template = 'wifi';
   final _name = TextEditingController(text: _defaultNames['wifi']);
-  late final _account = TextEditingController(text: context.app.accountKnown ? context.app.account : '');
+  final _account = TextEditingController();
   bool _nameEdited = false;
+  late final _summary = TextEditingController(text: _templateSummary(_template));
+  bool _summaryEdited = false;
   Set<SchemaId> _taken = {};
   bool _busy = false;
 
   @override
   void initState() {
     super.initState();
+    if (context.app.accountKnown) _account.text = context.app.account;
     _name.addListener(() => setState(() {}));
     _loadTaken();
   }
@@ -158,9 +163,12 @@ class _ChooseState extends State<_Choose> {
   @override
   void dispose() {
     _name.dispose();
+    _summary.dispose();
     _account.dispose();
     super.dispose();
   }
+
+  static String _templateSummary(String id) => schemaTemplates.firstWhere((t) => t.id == id).build(const SchemaId('', '')).summary;
 
   String? _nameError(String account) {
     final n = _name.text.trim();
@@ -179,7 +187,7 @@ class _ChooseState extends State<_Choose> {
     final scope = context.scope;
     setState(() => _busy = true);
     final template = schemaTemplates.firstWhere((t) => t.id == _template);
-    final draft = template.build(SchemaId(account, _name.text.trim()));
+    final draft = template.build(SchemaId(account, _name.text.trim())).copyWith(summary: _summary.text.trim());
     try {
       await scope.repository.saveDraft(draft);
       scope.app.go(SchemaEditorRoute(draft.id));
@@ -272,6 +280,7 @@ class _ChooseState extends State<_Choose> {
             _import = false;
             _template = v;
             if (!_nameEdited) _name.text = _defaultNames[v] ?? v;
+            if (!_summaryEdited) _summary.text = _templateSummary(v);
           }),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -294,6 +303,7 @@ class _ChooseState extends State<_Choose> {
                       _import = false;
                       _template = t.id;
                       if (!_nameEdited) _name.text = _defaultNames[t.id] ?? t.id;
+                      if (!_summaryEdited) _summary.text = _templateSummary(t.id);
                     }),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
@@ -389,12 +399,10 @@ class _ChooseState extends State<_Choose> {
               stretch: false,
               children: [
                 if (app.accountKnown)
-                  TextField(
-                    controller: _account,
-                    readOnly: true,
-                    style: context.text.bodyLarge?.mono,
+                  // Read-only: the alias, with the ID on hover and a click to copy it.
+                  InputDecorator(
                     decoration: InputDecoration(
-                      labelText: 'Account ID',
+                      labelText: 'Account',
                       helperText: 'Read-only · from your developer account',
                       helperMaxLines: 2,
                       filled: true,
@@ -402,6 +410,10 @@ class _ChooseState extends State<_Choose> {
                       border: const UnderlineInputBorder(),
                       enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.outlineVariant)),
                       suffixIcon: Icon(AppIcons.lock, size: 18, color: c.onSurfaceVariant),
+                    ),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: AccountName(account, style: context.text.bodyLarge?.mono),
                     ),
                   )
                 else
@@ -423,7 +435,7 @@ class _ChooseState extends State<_Choose> {
                   onSubmitted: (_) => _open(account),
                   decoration: InputDecoration(
                     labelText: 'Schema name',
-                    errorText: error == null ? null : 'Error: $error',
+                    errorText: error == null ? null : 'Error: ${context.aliased(error)}',
                     helper: error == null
                         ? CodeText(
                             'Lowercase letters, digits and dashes · creates `$account/${_name.text.trim()}`',
@@ -434,6 +446,16 @@ class _ChooseState extends State<_Choose> {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _summary,
+              onChanged: (_) => _summaryEdited = true,
+              onSubmitted: (_) => _open(account),
+              decoration: const InputDecoration(
+                labelText: 'Summary',
+                helperText: 'Optional · one line describing what the schema configures',
+              ),
             ),
           ],
           const SizedBox(height: 24),

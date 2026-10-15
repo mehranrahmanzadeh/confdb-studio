@@ -180,15 +180,17 @@ void main() {
       expect(ok.ok, isTrue);
     });
 
-    test('playground: net-manager is allowed, browser-proxy is denied at step 2', () async {
+    test('playground: net-manager is allowed, browser-proxy has no plug for the view', () {
       final snaps = seedSnaps();
-      Future<SimResult> run(String snap) => simulate(
+      SimResult run(String snap) => simulate(
         SimRequest(draft: networkDraft, view: 'wifi-admin', path: 'ssid', isSet: false, snap: snaps.firstWhere((s) => s.name == snap)),
         snaps: snaps,
-        readCurrent: (_) async => null,
       );
-      expect((await run('net-manager')).allowed, isTrue);
-      expect((await run('browser-proxy')).deniedAt, 2);
+      final ok = run('net-manager');
+      expect(ok.allowed, isTrue);
+      expect(ok.hasWarnings, isFalse);
+      expect(ok.steps.map((s) => s.title), ['Plug', 'Custodian and hooks', 'Rule match', 'Storage and visibility']);
+      expect(run('browser-proxy').deniedAt, 1);
     });
   });
 
@@ -221,7 +223,7 @@ void main() {
   group('fake repository', () {
     test('net-manager rejects a short psk and nothing changes', () async {
       final repo = FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero));
-      const ref = ViewRef('acme', 'network', 'wifi-admin');
+      const ref = ViewRef(acmeAccountId, 'network', 'wifi-admin');
       final rejected = await repo.applyValues(ref, {'psk': 'abc', 'band': '5GHz'});
       expect(rejected.status, ChangeStatus.error);
       expect(rejected.rejectedBy, 'net-manager');
@@ -236,14 +238,14 @@ void main() {
 
     test('write-only values are never read back', () async {
       final repo = FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero));
-      final psk = (await repo.readView(const ViewRef('acme', 'network', 'wifi-admin'))).entries.firstWhere((e) => e.key == 'psk');
+      final psk = (await repo.readView(const ViewRef(acmeAccountId, 'network', 'wifi-admin'))).entries.firstWhere((e) => e.key == 'psk');
       expect(psk.hasValue, isTrue);
       expect(psk.value, isNull);
     });
 
     test('secret values are left out of reads', () async {
       final repo = FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero));
-      final snapshot = await repo.readView(const ViewRef('acme', 'network', 'wifi-admin'));
+      final snapshot = await repo.readView(const ViewRef(acmeAccountId, 'network', 'wifi-admin'));
       final psk = snapshot.entries.firstWhere((e) => e.key == 'psk');
       expect(psk.secret, isTrue);
       expect(psk.masked, isTrue);

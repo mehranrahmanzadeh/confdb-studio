@@ -12,6 +12,7 @@ import '../../widgets/app_icons.dart';
 import '../../widgets/cli_disclosure.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
+import '../../widgets/account_name.dart';
 
 /// 7.7 Review & apply: modal side sheet over the current screen.
 Future<void> showReviewSheet(BuildContext context) {
@@ -213,7 +214,7 @@ class _ReviewSheetState extends State<_ReviewSheet> {
     final hooks = schema == null ? const <PlannedHook>[] : planWriteHooks(schema, data!.$2, staged.map((v) => v.storagePath).toSet());
 
     return [
-      if (showViewName) ...[Text(ref.path, style: context.text.titleSmall?.mono), const SizedBox(height: 10)],
+      if (showViewName) ...[AccountPath(ref.path, style: context.text.titleSmall?.mono), const SizedBox(height: 10)],
       Text('Staged changes', style: context.text.titleSmall),
       const SizedBox(height: 10),
       for (final v in staged) ...[

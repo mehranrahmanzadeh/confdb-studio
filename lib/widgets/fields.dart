@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import 'app_icons.dart';
+import '../state/account_names.dart';
 
 /// An outlined select with a floating label, opening a menu: the designs'
 /// `<button aria-haspopup="listbox">` fields (View, Snap, Signing key…).
@@ -116,7 +117,7 @@ class FilterMenuChip extends StatelessWidget {
           MenuItemButton(
             onPressed: () => onChanged(o),
             leadingIcon: SizedBox(width: 20, child: o == value ? const Icon(AppIcons.check, size: 20) : null),
-            child: Text(o, style: optionStyle),
+            child: Text(context.aliased(o), style: optionStyle),
           ),
       ],
       builder: (context, controller, _) => OutlinedButton(
@@ -132,7 +133,7 @@ class FilterMenuChip extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (selected) ...[const Icon(AppIcons.check, size: 18), const SizedBox(width: 6)],
-            Text(selected ? '$label: $value' : label),
+            Text(selected ? '$label: ${context.aliased(value!)}' : label),
             const SizedBox(width: 6),
             const Icon(AppIcons.expand, size: 18),
           ],

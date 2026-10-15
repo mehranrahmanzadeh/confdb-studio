@@ -20,6 +20,8 @@ import '../../widgets/common.dart';
 import '../../widgets/domain_badges.dart';
 import '../../widgets/loader.dart';
 import '../../widgets/step_icon.dart';
+import '../../widgets/account_name.dart';
+import '../../state/account_names.dart';
 
 /// 7.11 Change detail (ChangeDetail.dc.html for #1842, -1845 for done).
 class ChangeDetailScreen extends StatelessWidget {
@@ -161,7 +163,7 @@ class _DetailState extends State<_Detail> {
         style: context.text.headlineSmall,
         children: [
           TextSpan(text: '#${ch.id} ', style: context.text.headlineSmall?.mono),
-          ...CodeText.spans(ch.summary, context.text.headlineSmall!),
+          ...CodeText.spans(context.aliased(ch.summary), context.text.headlineSmall!),
         ],
       ),
     );
@@ -219,7 +221,7 @@ class _DetailState extends State<_Detail> {
             rows: [
               ('Change', MonoText('${ch.id}')),
               ('Kind', MonoText(ch.kind)),
-              if (ch.view != null) ('View', MonoText(ch.view!.path)),
+              if (ch.view != null) ('View', AccountPath(ch.view!.path, style: DefaultTextStyle.of(context).style.mono)),
               if (ch.custodian != null) ('Custodian', MonoText(ch.custodian!)),
               if (ch.observers.isNotEmpty) ('Observers', MonoText(ch.observers.join(', '))),
               (

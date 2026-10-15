@@ -7,6 +7,7 @@ import '../widgets/app_icons.dart';
 import '../widgets/cli_disclosure.dart';
 import '../widgets/code_text.dart';
 import '../widgets/common.dart';
+import '../widgets/copyable_text.dart';
 
 /// Bottom of the rail: the Snap Store (snapcraft) account. Warns when
 /// snapcraft isn't logged in, because signing schemas needs a registered key.
@@ -146,7 +147,7 @@ class _AccountPanel extends StatelessWidget {
           rows: [
             if (a.username != null) ('Username', MonoText(a.username!)),
             if (a.email != null) ('Email', Text(a.email!)),
-            if (a.accountId != null) ('Account ID', MonoText(a.accountId!)),
+            if (a.accountId != null) ('Account ID', CopyableText(a.accountId!, what: 'account ID', alias: false)),
           ],
         ),
         const SizedBox(height: 12),

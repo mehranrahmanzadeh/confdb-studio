@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../data/confdb_repository.dart';
 import '../../data/models.dart';
 import '../../domain/access.dart';
 import '../../domain/playground.dart';
@@ -14,66 +13,42 @@ import '../../widgets/cli_disclosure.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
 import '../../widgets/fields.dart';
-import '../../widgets/loader.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/step_icon.dart';
+import 'add_plug_guide.dart';
+import '../../state/account_names.dart';
 
-class _PlaygroundData {
-  const _PlaygroundData(this.draft, this.acknowledged, this.snaps);
+/// 7.8 View playground (Playground.dc.html, Playground-Denied): the schema
+/// editor's step between editing and signing. Shown below the editor header.
+class PlaygroundPanel extends StatefulWidget {
+  const PlaygroundPanel({super.key, required this.draft, required this.snaps, required this.route, required this.onView});
   final ConfdbSchema draft;
-
-  /// Whether the schema is acknowledged, so current values can be read.
-  final bool acknowledged;
   final List<SnapInfo> snaps;
-}
-
-/// 7.8 View playground (Playground.dc.html, Playground-Denied).
-class PlaygroundScreen extends StatelessWidget {
-  const PlaygroundScreen({super.key, required this.route});
   final PlaygroundRoute route;
 
-  Future<_PlaygroundData> _load(ConfdbRepository repo) async {
-    final r = await Future.wait([repo.listDrafts(), repo.listSchemas(), repo.listSnaps()]);
-    final drafts = r[0] as List<ConfdbSchema>;
-    final schemas = r[1] as List<ConfdbSchema>;
-    final base = schemas.where((s) => s.id == route.id).firstOrNull;
-    final draft = drafts.where((s) => s.id == route.id).firstOrNull ?? base;
-    if (draft == null) throw ConfdbException('No draft or schema ${route.id.path}', kind: ConfdbErrorKind.notFound);
-    return _PlaygroundData(draft, base != null, r[2] as List<SnapInfo>);
-  }
+  /// The selected view changed, so the route can follow.
+  final ValueChanged<String> onView;
 
   @override
-  Widget build(BuildContext context) => Loader<_PlaygroundData>(
-    key: ValueKey(route.id),
-    load: _load,
-    reloadOnChange: false,
-    loading: (context) => const PageBody(children: [LoadingRow('Loading the draft…')]),
-    error: (context, e, retry) => PageBody(
-      children: [LoadErrorMessage(title: 'Couldn’t open the playground', error: e, onRetry: retry)],
-    ),
-    builder: (context, data, _) => _Playground(route: route, data: data),
-  );
+  State<PlaygroundPanel> createState() => _PlaygroundState();
 }
 
-class _Playground extends StatefulWidget {
-  const _Playground({required this.route, required this.data});
-  final PlaygroundRoute route;
-  final _PlaygroundData data;
-
-  @override
-  State<_Playground> createState() => _PlaygroundState();
-}
-
-class _PlaygroundState extends State<_Playground> {
+class _PlaygroundState extends State<PlaygroundPanel> {
   late String _view = widget.route.view;
   late final _path = TextEditingController(text: widget.route.path ?? _firstRequest(_view));
   final _value = TextEditingController();
   bool _isSet = false;
-  late String? _snap = widget.route.snap ?? _defaultSnap(_view);
-  Future<SimResult>? _result;
 
-  ConfdbSchema get draft => widget.data.draft;
-  List<SnapInfo> get snaps => widget.data.snaps;
+  /// Hooks and services run as root (admin access); apps started by a user don't.
+  bool _asRoot = false;
+  late String? _snap = widget.route.snap ?? _defaultSnap(_view);
+  SimResult? _result;
+
+  /// The request [_result] answers.
+  SimRequest? _ran;
+
+  ConfdbSchema get draft => widget.draft;
+  List<SnapInfo> get snaps => widget.snaps;
 
   String _firstRequest(String view) => draft.view(view)?.rules.firstOrNull?.request ?? '';
 
@@ -101,27 +76,15 @@ class _PlaygroundState extends State<_Playground> {
   SimRequest? get _request {
     final snap = snaps.where((s) => s.name == _snap).firstOrNull;
     if (snap == null) return null;
-    return SimRequest(draft: draft, view: _view, path: _path.text.trim(), isSet: _isSet, value: _value.text, snap: snap);
+    return SimRequest(draft: draft, view: _view, path: _path.text.trim(), isSet: _isSet, value: _value.text, snap: snap, asRoot: _asRoot);
   }
 
   void _run() {
     final req = _request;
     if (req == null) return;
-    final repo = context.repo;
-    final acknowledged = widget.data.acknowledged;
     setState(() {
-      _result = simulate(
-        req,
-        snaps: snaps,
-        readCurrent: (ref) async {
-          if (!acknowledged) return null;
-          try {
-            return await repo.readView(ref);
-          } on ConfdbException {
-            return null; // the view may only exist in the draft
-          }
-        },
-      );
+      _ran = req;
+      _result = simulate(req, snaps: snaps);
     });
   }
 
@@ -136,7 +99,7 @@ class _PlaygroundState extends State<_Playground> {
         ? 'Pick a snap'
         : plug != null
         ? '${plug.role.label} · plug ${plug.plug} ${plug.state.isConnected ? 'connected' : 'not connected'}'
-        : '${snapInfo.isCustodian ? 'Custodian' : 'Observer'} · ${snapInfo.plugs.isEmpty ? 'no confdb plugs' : 'plug ${snapInfo.plugs.map((p) => p.plug).join(', ')} ${snapInfo.plugs.every((p) => p.state.isConnected) ? 'connected' : 'not connected'}'}';
+        : 'No plug for this view';
 
     final form = Panel(
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
@@ -150,13 +113,16 @@ class _PlaygroundState extends State<_Playground> {
                 : '${draft.isDraft ? 'Draft' : 'Revision ${draft.revision}'} · ${view.access.label} · ${plural(view.rules.length, 'rule')}',
             items: [
               for (final v in draft.views)
-                (v.name, Text(draft.id.view(v.name).path, style: context.text.bodyLarge?.mono.copyWith(fontSize: 15))),
+                (v.name, Text(context.aliased(draft.id.view(v.name).path), style: context.text.bodyLarge?.mono.copyWith(fontSize: 15))),
             ],
-            onSelected: (v) => setState(() {
-              _view = v;
-              _path.text = _firstRequest(v);
-            }),
-            child: Text(draft.id.view(_view).path),
+            onSelected: (v) {
+              setState(() {
+                _view = v;
+                _path.text = _firstRequest(v);
+              });
+              widget.onView(v);
+            },
+            child: Text(context.aliased(draft.id.view(_view).path)),
           ),
           const SizedBox(height: 20),
           TextField(
@@ -166,7 +132,7 @@ class _PlaygroundState extends State<_Playground> {
             onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
               labelText: 'Request path',
-              helperText: 'A path in the view’s namespace, as a snap would request it',
+              helperText: 'As a snap would request it; a prefix of a rule’s request reads everything below it',
               prefixText: '$_view › ',
               prefixStyle: context.text.bodyLarge?.mono.copyWith(fontSize: 15, color: context.colors.onSurfaceVariant),
             ),
@@ -204,6 +170,24 @@ class _PlaygroundState extends State<_Playground> {
             child: Text(_snap ?? 'No snaps with confdb plugs'),
           ),
           const SizedBox(height: 20),
+          Text('Runs as', style: context.text.bodySmall?.copyWith(color: context.colors.onSurfaceVariant)),
+          const SizedBox(height: 6),
+          SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('App run by a user')),
+              ButtonSegment(value: true, label: Text('Hook or service')),
+            ],
+            selected: {_asRoot},
+            onSelectionChanged: (s) => setState(() => _asRoot = s.first),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _asRoot
+                ? 'Root: snapd grants admin access, so secrets can be read.'
+                : 'Not root: snapd grants unprivileged access, so secrets can’t be read.',
+            style: context.text.bodySmall?.copyWith(color: context.colors.onSurfaceVariant),
+          ),
+          const SizedBox(height: 20),
           Align(
             alignment: Alignment.centerLeft,
             child: PrimaryButton(label: 'Run simulation', icon: AppIcons.play, onPressed: req == null ? null : _run),
@@ -218,31 +202,25 @@ class _PlaygroundState extends State<_Playground> {
       ),
     );
 
-    final results = FutureBuilder<SimResult>(
-      future: _result,
-      builder: (context, snap) {
-        final r = snap.data;
-        if (r == null) {
-          return snap.connectionState == ConnectionState.waiting ? const LinearProgressIndicator() : const SizedBox.shrink();
-        }
-        return _Resolution(
-          result: r,
-          onConnect: (p) => app.go(AccessRoute(snap: p.snap)),
-        );
-      },
-    );
+    final result = _result;
+    final results = result == null
+        ? const SizedBox.shrink()
+        : _Resolution(
+            result: result,
+            onConnect: (p) => app.go(AccessRoute(snap: p.snap)),
+            onAddPlug: () {
+              final ran = _ran;
+              if (ran != null) showAddPlugGuide(context, snap: ran.snap.name, view: ran.ref);
+            },
+          );
 
     return PageBody(
       gap: 20,
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
       children: [
-        PageHeader(
-          title: 'View playground',
-          subtitle: const Text('Simulate how snapd resolves a request through a view of the draft. Nothing is written and no hooks run.'),
-          trailing: TertiaryButton(
-            label: 'Back to schema editor',
-            icon: AppIcons.back,
-            onPressed: () => app.go(SchemaEditorRoute(draft.id, view: _view)),
-          ),
+        Text(
+          'Try the draft as snaps would use it before you sign. Simulates how snapd resolves a request through a view; nothing is written and no hooks run. Results don’t block signing.',
+          style: context.text.bodyMedium?.copyWith(color: context.colors.onSurfaceVariant),
         ),
         LayoutBuilder(
           builder: (context, constraints) {
@@ -265,9 +243,10 @@ class _PlaygroundState extends State<_Playground> {
 }
 
 class _Resolution extends StatelessWidget {
-  const _Resolution({required this.result, required this.onConnect});
+  const _Resolution({required this.result, required this.onConnect, required this.onAddPlug});
   final SimResult result;
   final ValueChanged<ConfdbPlug> onConnect;
+  final VoidCallback onAddPlug;
 
   @override
   Widget build(BuildContext context) {
@@ -281,7 +260,13 @@ class _Resolution extends StatelessWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Semantics(header: true, child: Text('Resolution', style: context.text.titleLarge)),
-            result.allowed ? const StatusBadge.success('Allowed') : StatusBadge.error('Denied at step ${result.deniedAt}'),
+            if (!result.allowed)
+              // The playground is for trying things out: a denial is a warning, not an error.
+              StatusBadge.warning('Denied at step ${result.deniedAt}')
+            else if (result.hasWarnings)
+              StatusBadge.warning(result.steps.first.state == SimState.warning ? 'Allowed once connected' : 'Allowed with warnings')
+            else
+              const StatusBadge.success('Allowed'),
           ],
         ),
         const SizedBox(height: 16),
@@ -306,7 +291,8 @@ class _Resolution extends StatelessWidget {
     final c = context.colors;
     final (tone, kind) = switch (s.state) {
       SimState.passed => (StepTone.passed, StatusKind.success),
-      SimState.failed => (StepTone.failed, StatusKind.error),
+      SimState.failed => (StepTone.warning, StatusKind.warning),
+      SimState.warning => (StepTone.warning, StatusKind.warning),
       SimState.skipped => (StepTone.neutral, StatusKind.neutral),
       SimState.info => (StepTone.info, StatusKind.info),
     };
@@ -339,27 +325,22 @@ class _Resolution extends StatelessWidget {
             CodeText(s.text, style: context.text.bodyMedium?.copyWith(color: c.onSurfaceVariant)),
             if (fix != null) ...[
               const SizedBox(height: 8),
-              Builder(
-                builder: (context) {
-                  final sameView = s.code?.endsWith(fix.view.path) ?? false;
-                  return InlineMessage(
-                    kind: MessageKind.error,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    title: 'Plug ${fix.plug} is not connected',
-                    body: CodeText(
-                      sameView
-                          ? 'Connect it to let `${fix.snap}` reach this view.'
-                          : '`${fix.plug}` points at `${fix.view.path}`, which doesn’t expose this path. Connecting it won’t help here; add a plug for this view to `${fix.snap}`.',
-                    ),
-                    actions: [
-                      OnContainerButton(
-                        label: sameView ? 'Connect plug' : 'Open in Access',
-                        icon: sameView ? AppIcons.link : AppIcons.access,
-                        onPressed: () => onConnect(fix),
-                      ),
-                    ],
-                  );
-                },
+              InlineMessage(
+                kind: MessageKind.warning,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                title: 'Plug ${fix.plug} is not connected',
+                body: CodeText('Connect it to let `${fix.snap}` reach this view.'),
+                actions: [OnContainerButton(label: 'Connect plug', icon: AppIcons.link, onPressed: () => onConnect(fix))],
+              ),
+            ],
+            if (s.missingPlug) ...[
+              const SizedBox(height: 8),
+              InlineMessage(
+                kind: MessageKind.warning,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                title: 'No plug for this view',
+                body: const Text('Add a confdb plug for this view to the snap, then connect it.'),
+                actions: [OnContainerButton(label: 'More info', icon: AppIcons.help, onPressed: onAddPlug)],
               ),
             ],
           ],
@@ -369,6 +350,7 @@ class _Resolution extends StatelessWidget {
     final icon = switch (s.state) {
       SimState.info => const StepIcon(tone: StepTone.info),
       SimState.skipped => const StepIcon(tone: StepTone.neutral),
+      SimState.failed => StepIcon(tone: tone, icon: AppIcons.close),
       _ => StepIcon(tone: tone),
     };
     return (icon, body);

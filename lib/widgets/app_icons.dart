@@ -46,9 +46,13 @@ abstract final class AppIcons {
   static const play = Icons.play_arrow_outlined;
   static const delete = Icons.delete_outline;
   static const key = Icons.key_outlined;
+
+  /// A map placeholder: any key (`{key}`).
+  static const placeholder = Icons.data_object;
   static const upload = Icons.upload_outlined;
   static const template = Icons.space_dashboard_outlined;
   static const back = Icons.arrow_back;
+  static const next = Icons.arrow_forward;
   static const openDetails = Icons.open_in_new;
   static const hook = Icons.code;
   static const dash = Icons.remove;

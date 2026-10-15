@@ -6,8 +6,14 @@ const _r = RuleAccess.read;
 const _w = RuleAccess.write;
 const _rw = RuleAccess.readWrite;
 
-const networkId = SchemaId('acme', 'network');
-const telemetryId = SchemaId('acme', 'telemetry');
+/// The sample developer's Snap Store `account-id`; its username is `acme`.
+const acmeAccountId = 'Ky1RVjc4cN5NnTsZh3ZqNfVyJTDmF2Xq';
+
+/// Account assertions the sample backend knows.
+const sampleAccounts = {acmeAccountId: AccountInfo(id: acmeAccountId, username: 'acme', displayName: 'Acme Inc.')};
+
+const networkId = SchemaId(acmeAccountId, 'network');
+const telemetryId = SchemaId(acmeAccountId, 'telemetry');
 const systemSnapsId = SchemaId('system', 'snaps');
 
 const _wifiStorage = StorageNode(
@@ -53,7 +59,7 @@ const networkRev4 = ConfdbSchema(
   id: networkId,
   revision: 4,
   summary: 'Wi-Fi and proxy settings',
-  signedBy: 'acme',
+  signedBy: acmeAccountId,
   storage: StorageNode.root([_wifiStorage, _proxyStorage]),
   views: [
     ViewDef(
@@ -109,7 +115,7 @@ const telemetryRev1 = ConfdbSchema(
   id: telemetryId,
   revision: 1,
   summary: 'Telemetry reporting',
-  signedBy: 'acme',
+  signedBy: acmeAccountId,
   storage: StorageNode.root([
     StorageNode(
       key: 'telemetry',
@@ -187,14 +193,14 @@ List<SnapInfo> seedSnaps() => const [
       ConfdbPlug(
         snap: 'net-manager',
         plug: 'wifi-admin',
-        view: ViewRef('acme', 'network', 'wifi-admin'),
+        view: ViewRef(acmeAccountId, 'network', 'wifi-admin'),
         role: PlugRole.custodian,
         state: ConnState.connected,
       ),
       ConfdbPlug(
         snap: 'net-manager',
         plug: 'proxy-admin',
-        view: ViewRef('acme', 'network', 'proxy-admin'),
+        view: ViewRef(acmeAccountId, 'network', 'proxy-admin'),
         role: PlugRole.custodian,
         state: ConnState.connected,
       ),
@@ -215,7 +221,7 @@ List<SnapInfo> seedSnaps() => const [
       ConfdbPlug(
         snap: 'wifi-indicator',
         plug: 'wifi-state',
-        view: ViewRef('acme', 'network', 'wifi-state'),
+        view: ViewRef(acmeAccountId, 'network', 'wifi-state'),
         role: PlugRole.observer,
         state: ConnState.connected,
       ),
@@ -232,7 +238,7 @@ List<SnapInfo> seedSnaps() => const [
       ConfdbPlug(
         snap: 'browser-proxy',
         plug: 'proxy-state',
-        view: ViewRef('acme', 'network', 'proxy-state'),
+        view: ViewRef(acmeAccountId, 'network', 'proxy-state'),
         role: PlugRole.observer,
         state: ConnState.notConnected,
       ),
@@ -247,7 +253,7 @@ List<SnapInfo> seedSnaps() => const [
       ConfdbPlug(
         snap: 'telemetry-agent',
         plug: 'telemetry-admin',
-        view: ViewRef('acme', 'telemetry', 'telemetry-admin'),
+        view: ViewRef(acmeAccountId, 'telemetry', 'telemetry-admin'),
         role: PlugRole.custodian,
         state: ConnState.autoConnected,
       ),
@@ -261,7 +267,7 @@ const signingKeysSeed = [
   SigningKey(name: 'acme-dev', sha3384: 'Lp0sDk3QwE8rTy2Uo6Ia4Sf9Gh1Jk5Zx7Cv3Bn0Mq2We8Rt4Yu6Io1Pa9Sd5Fg2H'),
 ];
 
-const _wifiAdmin = ViewRef('acme', 'network', 'wifi-admin');
+const _wifiAdmin = ViewRef(acmeAccountId, 'network', 'wifi-admin');
 
 /// Changes #1840–#1845. New changes start at #1846.
 List<ConfdbChange> seedChanges(DateTime now) {
@@ -271,7 +277,7 @@ List<ConfdbChange> seedChanges(DateTime now) {
     ConfdbChange(
       id: 1845,
       kind: 'set-confdb',
-      summary: 'Set confdb through `acme/network/wifi-admin`',
+      summary: 'Set confdb through `$acmeAccountId/network/wifi-admin`',
       detail: 'band = auto',
       initiator: 'You',
       initiatorKind: InitiatorKind.user,
@@ -333,13 +339,17 @@ List<ConfdbChange> seedChanges(DateTime now) {
           meta: '',
           description: 'snapd connected the plug when `wifi-indicator` was installed.',
         ),
-        ChangeStep(title: 'Connect `wifi-indicator:wifi-state` to `acme/network/wifi-state`', state: ChangeStepState.passed, meta: '9 ms'),
+        ChangeStep(
+          title: 'Connect `wifi-indicator:wifi-state` to `$acmeAccountId/network/wifi-state`',
+          state: ChangeStepState.passed,
+          meta: '9 ms',
+        ),
       ],
     ),
     ConfdbChange(
       id: 1842,
       kind: 'set-confdb',
-      summary: 'Set confdb through `acme/network/wifi-admin`',
+      summary: 'Set confdb through `$acmeAccountId/network/wifi-admin`',
       detail: 'psk = •••',
       initiator: 'You',
       initiatorKind: InitiatorKind.user,
@@ -383,8 +393,8 @@ List<ConfdbChange> seedChanges(DateTime now) {
     ConfdbChange(
       id: 1840,
       kind: 'ack-schema',
-      summary: 'Acknowledge `acme/network` rev 4',
-      detail: 'signed by acme',
+      summary: 'Acknowledge `$acmeAccountId/network` rev 4',
+      detail: 'signed by $acmeAccountId',
       initiator: 'You',
       initiatorKind: InitiatorKind.user,
       spawnTime: yesterday,
@@ -393,10 +403,10 @@ List<ConfdbChange> seedChanges(DateTime now) {
       steps: const [
         ChangeStep(title: 'Initiated by user', state: ChangeStepState.user, meta: '', description: 'You, from Confdb Studio'),
         ChangeStep(
-          title: 'Check signature of `acme/network` rev 4',
+          title: 'Check signature of `$acmeAccountId/network` rev 4',
           state: ChangeStepState.passed,
           meta: '6 ms',
-          description: 'Signed by account `acme`.',
+          description: 'Signed by account `$acmeAccountId`.',
         ),
         ChangeStep(title: 'Acknowledged', state: ChangeStepState.passed, meta: '', description: 'Revision 4 is now in use.'),
       ],

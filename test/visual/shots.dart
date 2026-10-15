@@ -8,13 +8,25 @@ import 'package:confdb_studio/state/staging_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../fixtures/robot.dart';
 import 'screenshots_test.dart';
 
 const compact = Size(960, 1480);
 
 /// A large monitor: pages should use the whole width.
 const wide = Size(2560, 1200);
-const wifiAdmin = ViewRef('acme', 'network', 'wifi-admin');
+const wifiAdmin = ViewRef(acmeAccountId, 'network', 'wifi-admin');
+const robotControl = ViewRef('acme', 'robot', 'control');
+
+/// The placeholder schema from test/fixtures/robot.dart, acknowledged, with
+/// two accelerometers set.
+Future<void> robotWithValues(FakeConfdbRepository repo) async {
+  await repo.signAndAcknowledge(robotSchema(), (await repo.signingKeys()).first);
+  await repo.applyValues(robotControl, {
+    'accelerometers.front': {'x': 0.1, 'y': -0.4},
+    'accelerometers.rear': {'x': 0.0, 'y': 0.2},
+  });
+}
 
 StagingController staging(WidgetTester t) => t.element(find.byType(AppShell)).staging;
 
@@ -88,7 +100,7 @@ final shots = <Shot>[
       );
     },
   ),
-  const Shot('data-empty', DataRoute(view: ViewRef('acme', 'telemetry', 'telemetry-read'))),
+  const Shot('data-empty', DataRoute(view: ViewRef(acmeAccountId, 'telemetry', 'telemetry-read'))),
   const Shot(
     'data-error',
     DataRoute(view: wifiAdmin, key: 'band'),
@@ -173,6 +185,15 @@ final shots = <Shot>[
   ),
   const Shot('playground', PlaygroundRoute(networkId, view: 'wifi-admin')),
   const Shot('playground-denied', PlaygroundRoute(networkId, view: 'wifi-admin', snap: 'browser-proxy')),
+  Shot(
+    'playground-add-plug',
+    const PlaygroundRoute(networkId, view: 'wifi-admin', snap: 'browser-proxy'),
+    act: (t) async {
+      await t.ensureVisible(find.text('More info'));
+      await t.tap(find.text('More info'));
+    },
+  ),
+  const Shot('playground-not-connected', PlaygroundRoute(networkId, view: 'proxy-state', snap: 'browser-proxy')),
   const Shot('playground-compact', PlaygroundRoute(networkId, view: 'wifi-admin'), size: compact),
   Shot(
     'sign',
@@ -180,6 +201,10 @@ final shots = <Shot>[
     act: (t) async {
       await t.tap(find.textContaining('Add wifi.signal'));
       await t.pump(const Duration(milliseconds: 500));
+      await t.tap(find.text('Next'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
       await t.tap(find.text('Sign & acknowledge').last);
     },
   ),
@@ -251,6 +276,10 @@ final shots = <Shot>[
     act: (t) async {
       await t.tap(find.textContaining('Add wifi.signal'));
       await t.pump(const Duration(milliseconds: 500));
+      await t.tap(find.text('Next'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
       await t.tap(find.text('Sign & acknowledge').last);
     },
   ),
@@ -261,6 +290,10 @@ final shots = <Shot>[
     act: (t) async {
       await t.tap(find.textContaining('Add wifi.signal'));
       await t.pump(const Duration(milliseconds: 500));
+      await t.tap(find.text('Next'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
       await t.tap(find.text('Sign & acknowledge').last);
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
@@ -275,12 +308,59 @@ final shots = <Shot>[
     act: (t) async {
       await t.tap(find.textContaining('Add wifi.signal'));
       await t.pump(const Duration(milliseconds: 500));
+      await t.tap(find.text('Next'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
       await t.tap(find.text('Sign & acknowledge').last);
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
       await t.tap(find.text('Sign and acknowledge'));
     },
+  ),
+  Shot('editor-placeholders', const SchemaEditorRoute(SchemaId('acme', 'robot'), view: 'control'), setup: robotWithValues),
+  Shot(
+    'editor-placeholder-errors',
+    const SchemaEditorRoute(SchemaId('acme', 'robot'), view: 'control'),
+    setup: (repo) => repo.saveDraft(
+      robotSchema([
+        ...robotRules,
+        const ViewRule(request: 'grippers.{g}', storage: 'grippers.{gripper}', access: RuleAccess.readWrite),
+        const ViewRule(request: 'limit[0]', storage: 'thresholds[0]', access: RuleAccess.read),
+      ]),
+    ),
+  ),
+  Shot(
+    'storage-add-placeholder',
+    const SchemaEditorRoute(SchemaId('acme', 'bot')),
+    setup: (repo) => repo.saveDraft(
+      const ConfdbSchema(
+        id: SchemaId('acme', 'bot'),
+        summary: 'Robot actuators',
+        storage: StorageNode.root([StorageNode(key: 'actuators', kind: StorageKind.map)]),
+        views: [],
+        isDraft: true,
+      ),
+    ),
+    act: (t) async {
+      await t.tap(find.byTooltip('Actions for actuators'));
+      for (var i = 0; i < 12; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
+      await t.tap(find.text('Add placeholder'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
+      await t.enterText(find.widgetWithText(TextField, 'Key pattern (optional)'), r'^[a-z](?:-?[a-z0-9])*$');
+    },
+  ),
+  Shot('storage-menu-placeholder', const SchemaEditorRoute(networkId), act: (t) async => t.tap(find.byTooltip('Actions for wifi'))),
+  Shot(
+    'data-placeholders',
+    const DataRoute(view: robotControl, key: 'accelerometers.{sensor}'),
+    setup: robotWithValues,
+    act: (t) async => t.enterText(find.widgetWithText(TextField, '{sensor}'), 'front'),
   ),
   const Shot('onboarding', OverviewRoute(), scenario: FakeScenario(latency: Duration.zero, confdbDisabled: true)),
   Shot(

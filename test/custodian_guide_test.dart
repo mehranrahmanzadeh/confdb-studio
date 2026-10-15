@@ -11,7 +11,9 @@ void main() {
     final yaml = custodianPlugsYaml(networkRev4);
     expect(
       yaml,
-      startsWith('plugs:\n  wifi-admin:\n    interface: confdb\n    account: acme\n    view: network/wifi-admin\n    role: custodian'),
+      startsWith(
+        'plugs:\n  wifi-admin:\n    interface: confdb\n    account: $acmeAccountId\n    view: network/wifi-admin\n    role: custodian',
+      ),
     );
     expect('role: custodian'.allMatches(yaml).length, networkRev4.views.length);
   });

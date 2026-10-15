@@ -6,7 +6,6 @@ import '../screens/activity/change_detail_screen.dart';
 import '../screens/data/data_explorer_screen.dart';
 import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/overview/overview_screen.dart';
-import '../screens/playground/playground_screen.dart';
 import '../screens/review/review_sheet.dart';
 import '../screens/schema_editor/schema_editor_screen.dart';
 import '../screens/schemas/schemas_list_screen.dart';
@@ -21,8 +20,8 @@ Widget buildScreen(AppRoute route) => switch (route) {
   ActivityRoute() => const ActivityScreen(),
   AccessRoute() => AccessScreen(route: route),
   SchemasRoute() => const SchemasListScreen(),
-  SchemaEditorRoute() => SchemaEditorScreen(route: route),
-  PlaygroundRoute() => PlaygroundScreen(route: route),
+  // One screen for both steps, so the draft and header stay put between them.
+  AuthoringRoute() => SchemaEditorScreen(route: route),
   OnboardingRoute() => OnboardingScreen(route: route),
   ChangeRoute(:final id) => ChangeDetailScreen(id: id),
 };

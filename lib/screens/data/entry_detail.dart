@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../../data/models.dart';
+import '../../domain/analysis.dart';
+import '../../domain/paths.dart';
 import '../../domain/values.dart';
 import '../../shell/screen_host.dart';
 import '../../state/app_controller.dart';
@@ -39,7 +41,30 @@ class _EntryDetailState extends State<EntryDetail> {
 
   ViewEntry get e => widget.entry;
   ViewRef get ref => widget.snapshot.ref;
-  StagedValue? get _staged => context.staging.lookup(ref, e.key);
+  StagedValue? get _staged => _key == null ? null : context.staging.lookup(ref, _key!);
+
+  /// One input per placeholder in the request (`{sensor}`): which entry of
+  /// the collection to edit.
+  late final Map<String, TextEditingController> _placeholders = {
+    for (final p in placeholdersOf(e.rule.request)) p: TextEditingController(),
+  };
+  bool get _isCollection => _placeholders.isNotEmpty;
+  Map<String, String> get _bindings => {for (final p in _placeholders.entries) p.key: p.value.text.trim()};
+  bool get _bound => _bindings.entries.every((b) => isValidPlaceholderValue(e.rule.request, b.key, b.value));
+
+  /// The concrete request path being edited; null until every placeholder is filled.
+  String? get _key => !_isCollection ? e.key : (_bound ? fillPath(e.rule.request, _bindings) : null);
+  String get _storagePath => _isCollection ? fillPath(e.rule.storage, _bindings) : e.rule.storage;
+  StorageNode? get _node => _isCollection ? resolveStoragePath(widget.snapshot.schema.storage, _storagePath) ?? e.node : e.node;
+
+  /// The current value at [_key]; for a collection, looked up inside it.
+  Object? get _current {
+    if (!_isCollection) return e.value;
+    final key = _key;
+    if (key == null || !e.hasValue) return null;
+    final first = tryParsePath(e.rule.request)!.indexWhere((s) => s.isPlaceholder);
+    return lookupValue(e.value, joinPath(parsePath(key).skip(first))).$2;
+  }
 
   bool _syncing = false;
   Object? _lastStaged;
@@ -48,9 +73,9 @@ class _EntryDetailState extends State<EntryDetail> {
   @override
   void initState() {
     super.initState();
-    final staged = context.staging.lookup(ref, e.key);
+    final staged = _key == null ? null : context.staging.lookup(ref, _key!);
     _lastStaged = staged?.value;
-    _text = TextEditingController(text: _editText(staged?.value ?? (e.masked ? null : e.value)));
+    _text = TextEditingController(text: _editText(staged?.value ?? (e.masked ? null : _current)));
     _text.addListener(() {
       if (!_syncing) setState(() => _touched = true);
     });
@@ -60,12 +85,24 @@ class _EntryDetailState extends State<EntryDetail> {
   /// Follows values staged elsewhere (Retry with fix, Revert in the tray)
   /// while the user hasn't typed here.
   void _onStaging() {
-    final staged = context.staging.lookup(ref, e.key);
+    final staged = _staged;
     if (_touched || staged?.value == _lastStaged) return;
     _lastStaged = staged?.value;
     _syncing = true;
-    _text.text = _editText(staged?.value ?? (e.masked ? null : e.value));
+    _text.text = _editText(staged?.value ?? (e.masked ? null : _current));
     _syncing = false;
+    setState(() {});
+  }
+
+  /// Another entry of the collection picked: show its value unless the
+  /// user has typed one.
+  void _onPlaceholder() {
+    if (!_touched) {
+      _lastStaged = _staged?.value;
+      _syncing = true;
+      _text.text = _editText(_staged?.value ?? (e.masked ? null : _current));
+      _syncing = false;
+    }
     setState(() {});
   }
 
@@ -73,6 +110,9 @@ class _EntryDetailState extends State<EntryDetail> {
   void dispose() {
     _staging.removeListener(_onStaging);
     _text.dispose();
+    for (final c in _placeholders.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -82,19 +122,19 @@ class _EntryDetailState extends State<EntryDetail> {
     return jsonEncode(v);
   }
 
-  String? get _error => validateValue(e.node, _text.text, hint: e.hint);
+  String? get _error => validateValue(_node, _text.text, hint: e.hint);
 
   bool get _differs {
     final parsed = _tryParse();
     if (parsed == null) return false;
     final staged = _staged;
     if (staged != null) return jsonEncode(parsed) != jsonEncode(staged.value) || staged.isRejected;
-    return e.masked || jsonEncode(parsed) != jsonEncode(e.value);
+    return e.masked || jsonEncode(parsed) != jsonEncode(_current);
   }
 
   Object? _tryParse() {
     try {
-      return parseInput(e.node, _text.text);
+      return parseInput(_node, _text.text);
     } catch (_) {
       return null;
     }
@@ -102,17 +142,19 @@ class _EntryDetailState extends State<EntryDetail> {
 
   void _stage(Object? value) {
     final staging = context.staging;
-    if (!e.masked && jsonEncode(value) == jsonEncode(e.value)) {
-      staging.unstage(ref, e.key);
+    final key = _key;
+    if (key == null) return;
+    if (!e.masked && jsonEncode(value) == jsonEncode(_current)) {
+      staging.unstage(ref, key);
       return;
     }
     staging.stage(
       StagedValue(
         view: ref,
-        key: e.key,
-        storagePath: e.rule.storage,
-        node: e.node,
-        before: e.masked ? null : e.value,
+        key: key,
+        storagePath: _storagePath,
+        node: _node,
+        before: e.masked ? null : _current,
         value: value,
         secret: e.masked,
       ),
@@ -123,9 +165,9 @@ class _EntryDetailState extends State<EntryDetail> {
 
   void _revert() {
     _touched = false;
-    context.staging.unstage(ref, e.key);
+    if (_key != null) context.staging.unstage(ref, _key!);
     _syncing = true;
-    _text.text = _editText(e.masked ? null : e.value);
+    _text.text = _editText(e.masked ? null : _current);
     _syncing = false;
     setState(() {});
   }
@@ -165,6 +207,15 @@ class _EntryDetailState extends State<EntryDetail> {
 
     final rows = <(String, Widget)>[
       ('Storage path', MonoText(e.rule.storage)),
+      if (_isCollection)
+        (
+          'Entries',
+          switch (e.value) {
+            Map(:final keys) when e.hasValue && keys.isNotEmpty => CodeText(keys.map((k) => '`$k`').join(', ')),
+            List(:final length) when e.hasValue && length > 0 => Text('$length items'),
+            _ => Text('None yet', style: TextStyle(color: c.onSurfaceVariant)),
+          },
+        ),
       (
         'Other views',
         others.isEmpty
@@ -217,9 +268,9 @@ class _EntryDetailState extends State<EntryDetail> {
     ];
 
     final values = staged != null && !_touched ? staged.value : _tryParse();
-    final command = e.rule.access.canWrite
-        ? snapSetCommand(ref, [(e.key, values ?? (e.masked ? '' : e.value), e.masked)])
-        : 'snap get ${ref.path} ${e.key}';
+    final command = e.rule.access.canWrite && _key != null
+        ? snapSetCommand(ref, [(_key!, values ?? (e.masked ? '' : _current), e.masked)])
+        : 'snap get ${ref.path} ${_isCollection ? fixedPrefix(e.key) : e.key}'.trimRight();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -250,7 +301,7 @@ class _EntryDetailState extends State<EntryDetail> {
 
   List<Widget> _editor(BuildContext context, StagedValue? staged) {
     final c = context.colors;
-    final node = e.node;
+    final node = _node;
     if (!e.rule.access.canWrite) {
       return [
         InlineMessage(
@@ -268,12 +319,50 @@ class _EntryDetailState extends State<EntryDetail> {
 
     final widgets = <Widget>[];
 
+    if (_isCollection) {
+      widgets.addAll([
+        CodeText(
+          'Pick the entry to set: fill in ${_placeholders.keys.map((p) => '`{$p}`').join(' and ')}.',
+          style: context.text.bodyMedium?.copyWith(color: c.onSurfaceVariant),
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (final p in _placeholders.entries)
+              SizedBox(
+                width: 220,
+                child: TextField(
+                  controller: p.value,
+                  style: context.text.bodyLarge?.mono,
+                  onChanged: (_) => _onPlaceholder(),
+                  decoration: InputDecoration(
+                    labelText: '{${p.key}}',
+                    errorText: p.value.text.trim().isEmpty || isValidPlaceholderValue(e.rule.request, p.key, p.value.text.trim())
+                        ? null
+                        : 'Error: ${placeholderIsIndex(e.rule.request, p.key) ? 'use a list index, like 0' : 'use lowercase letters, digits and dashes'}',
+                  ),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+      ]);
+      if (_key == null) return widgets;
+      widgets.addAll([
+        CodeText('Sets `$_key` → `$_storagePath`', style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
+        const SizedBox(height: 12),
+      ]);
+    }
+
     if (node != null && node.isEnum) {
-      final current = e.value as String?;
+      final current = _current is String ? _current as String : null;
       final selected = (staged?.value as String?) ?? current;
       widgets.add(
         LayoutBuilder(
           builder: (context, constraints) => DropdownMenu<String>(
+            key: ValueKey(_key),
             width: constraints.maxWidth,
             initialSelection: selected,
             label: const Text('Value'),

@@ -39,6 +39,7 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       final repo = FakeConfdbRepository(scenario: shot.scenario);
+      if (shot.setup != null) await tester.runAsync(() => shot.setup!(repo));
       await tester.pumpWidget(ConfdbStudioApp(repository: repo, initialRoute: shot.route));
       for (var i = 0; i < 20; i++) {
         await tester.pump(const Duration(milliseconds: 50));
@@ -65,10 +66,14 @@ class Shot {
     this.size = const Size(1440, 900),
     this.scenario = const FakeScenario(latency: Duration.zero),
     this.act,
+    this.setup,
   });
   final String name;
   final AppRoute route;
   final Size size;
   final FakeScenario scenario;
   final Future<void> Function(WidgetTester tester)? act;
+
+  /// Prepares the sample backend before the app starts.
+  final Future<void> Function(FakeConfdbRepository repo)? setup;
 }

@@ -7,11 +7,14 @@ import '../../util/format.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
 
-/// What the dialog produces: where the node goes, and the node.
+/// What the dialog produces: where the node goes, and the node. For a
+/// placeholder, [node] is the map's values and [keys] its key constraint.
 class StorageEdit {
-  const StorageEdit({required this.parent, required this.node});
+  const StorageEdit({required this.parent, required this.node, this.placeholder = false, this.keys});
   final String? parent;
   final StorageNode node;
+  final bool placeholder;
+  final StorageNode? keys;
 
   String get path => joinPath(parent, node.key);
 }
@@ -47,16 +50,20 @@ enum _Type {
 const _elementTypes = ['string', 'int', 'number', 'bool', 'any'];
 
 /// Adds a storage path (when [path] is null) or edits the one at [path].
-/// [snapdVersion] (when known) warns that secrets need snapd 2.76+.
+/// With [placeholderOf], adds a placeholder to that map instead: any key,
+/// each with a value of the chosen type. [snapdVersion] (when known) warns
+/// that secrets need snapd 2.76+.
 Future<StorageEdit?> showStorageNodeDialog(
   BuildContext context, {
   required ConfdbSchema draft,
   String? path,
   String? parent,
+  String? placeholderOf,
   String? snapdVersion,
 }) => showDialog<StorageEdit>(
   context: context,
-  builder: (context) => _StorageNodeDialog(draft: draft, path: path, parent: parent, snapdVersion: snapdVersion),
+  builder: (context) =>
+      _StorageNodeDialog(draft: draft, path: path, parent: parent, placeholderOf: placeholderOf, snapdVersion: snapdVersion),
 );
 
 /// `visibility: secret` needs snapd 2.76 or later.
@@ -68,10 +75,17 @@ bool snapdSupportsSecrets(String version) {
 }
 
 class _StorageNodeDialog extends StatefulWidget {
-  const _StorageNodeDialog({required this.draft, required this.path, required this.parent, required this.snapdVersion});
+  const _StorageNodeDialog({
+    required this.draft,
+    required this.path,
+    required this.parent,
+    required this.placeholderOf,
+    required this.snapdVersion,
+  });
   final ConfdbSchema draft;
   final String? path;
   final String? parent;
+  final String? placeholderOf;
   final String? snapdVersion;
 
   @override
@@ -80,7 +94,12 @@ class _StorageNodeDialog extends StatefulWidget {
 
 class _StorageNodeDialogState extends State<_StorageNodeDialog> {
   late final StorageNode? _original = widget.path == null ? null : widget.draft.storage.lookup(widget.path!);
-  late String? _parent = widget.path == null ? widget.parent : parentOf(widget.path!);
+  late String? _parent = widget.placeholderOf ?? (widget.path == null ? widget.parent : parentOf(widget.path!));
+
+  /// Adding or editing a map's placeholder: no key name, a key pattern instead.
+  late final bool _placeholder = widget.placeholderOf != null || (widget.path?.split('.').last == StorageNode.placeholderKey);
+  late final StorageNode? _originalKeys = _placeholder ? widget.draft.storage.lookup(_parent!)?.keys : null;
+  late final _keyPattern = TextEditingController(text: _originalKeys?.pattern ?? '');
   late final _key = TextEditingController(text: _original?.key ?? '');
   late _Type _type = _original == null ? _Type.string : _Type.of(_original);
   late final _choices = TextEditingController(text: _original?.choices.join(', ') ?? '');
@@ -99,7 +118,7 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
 
   @override
   void dispose() {
-    for (final c in [_key, _choices, _pattern, _min, _max]) {
+    for (final c in [_key, _choices, _pattern, _min, _max, _keyPattern]) {
       c.dispose();
     }
     super.dispose();
@@ -111,6 +130,7 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
   ];
 
   String? get _keyError {
+    if (_placeholder) return null;
     final siblings = siblingKeys(widget.draft.storage, _parent).where((k) => !_editing || k != _original!.key);
     return validateStorageKey(_key.text.trim(), siblings);
   }
@@ -123,14 +143,24 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
     return null;
   }
 
-  String? get _patternError {
-    if (_type != _Type.string || _pattern.text.isEmpty) return null;
+  String? get _patternError => _type == _Type.string ? _regexError(_pattern.text) : null;
+
+  static String? _regexError(String pattern) {
+    if (pattern.isEmpty) return null;
     try {
-      RegExp(_pattern.text);
+      RegExp(pattern);
       return null;
     } on FormatException catch (e) {
       return 'Not a valid pattern: ${e.message}';
     }
+  }
+
+  /// The `"keys"` constraint: a string with the pattern, or none. Keys
+  /// defined some other way (choices…) are kept while the pattern is untouched.
+  StorageNode? get _keys {
+    final p = _keyPattern.text.trim();
+    if (_originalKeys != null && p == (_originalKeys.pattern ?? '')) return _originalKeys;
+    return p.isEmpty ? null : StorageNode(key: 'keys', kind: StorageKind.string, pattern: p);
   }
 
   num? _num(TextEditingController c) => c.text.trim().isEmpty ? null : num.tryParse(c.text.trim());
@@ -151,18 +181,19 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
 
   bool get _valid =>
       _keyError == null &&
+      (!_placeholder || _regexError(_keyPattern.text.trim()) == null) &&
       _choicesError == null &&
       _patternError == null &&
       (_type != _Type.int_ && _type != _Type.number || (_numError(_min) == null && _numError(_max) == null && _rangeError == null));
 
   StorageNode _build() {
-    final key = _key.text.trim();
+    final key = _placeholder ? StorageNode.placeholderKey : _key.text.trim();
     final o = _original;
     if (o != null && o.raw != null) {
       return StorageNode(key: key, kind: o.kind, alternatives: o.alternatives, secret: o.secret, raw: o.raw);
     }
     final numeric = _type == _Type.int_ || _type == _Type.number;
-    return StorageNode(
+    final node = StorageNode(
       key: key,
       kind: switch (_type) {
         _Type.string || _Type.enumeration => StorageKind.string,
@@ -183,12 +214,16 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
       valuesType: _type == _Type.array ? _elementType : null,
       secret: _secret,
     );
+    // A map keeps its placeholder (and key constraint) when it stays a map.
+    final o2 = _original;
+    if (_type == _Type.map && o2 != null && o2.isMap) return node.withElement(o2.hasPlaceholder ? o2.element : null).withKeys(o2.keys);
+    return node;
   }
 
   void _submit() {
     setState(() => _submitted = true);
     if (!_valid) return;
-    Navigator.of(context).pop(StorageEdit(parent: _parent, node: _build()));
+    Navigator.of(context).pop(StorageEdit(parent: _parent, node: _build(), placeholder: _placeholder, keys: _placeholder ? _keys : null));
   }
 
   @override
@@ -199,7 +234,26 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
     String? shown(String? e) => _submitted || _key.text.isNotEmpty ? e : null;
 
     final fields = <Widget>[
-      if (!_editing) ...[
+      if (_placeholder) ...[
+        CodeText(
+          'Lets `$_parent` hold any key. Views name it in their paths, e.g. `$_parent.{name}`, and every key’s value has the type below.',
+          style: context.text.bodyMedium?.copyWith(color: c.onSurfaceVariant),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _keyPattern,
+          autofocus: true,
+          style: context.text.bodyLarge?.mono,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            labelText: 'Key pattern (optional)',
+            helperText: r'Regular expression keys must match, e.g. ^[a-z](?:-?[a-z0-9])*$ · written as "keys"',
+            helperMaxLines: 2,
+            errorText: _regexError(_keyPattern.text.trim()),
+          ),
+        ),
+        const SizedBox(height: 16),
+      ] else if (!_editing) ...[
         DropdownMenu<String?>(
           expandedInsets: EdgeInsets.zero,
           label: const Text('Inside'),
@@ -210,25 +264,27 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
         ),
         const SizedBox(height: 16),
       ],
-      TextField(
-        controller: _key,
-        autofocus: true,
-        style: context.text.bodyLarge?.mono,
-        onChanged: (_) => setState(() {}),
-        onSubmitted: (_) => _submit(),
-        decoration: InputDecoration(
-          labelText: 'Key',
-          helper: CodeText(
-            'Lowercase letters, digits and dashes · path `${joinPath(_parent, _key.text.trim().isEmpty ? '…' : _key.text.trim())}`',
-            style: muted,
+      if (!_placeholder) ...[
+        TextField(
+          controller: _key,
+          autofocus: true,
+          style: context.text.bodyLarge?.mono,
+          onChanged: (_) => setState(() {}),
+          onSubmitted: (_) => _submit(),
+          decoration: InputDecoration(
+            labelText: 'Key',
+            helper: CodeText(
+              'Lowercase letters, digits and dashes · path `${joinPath(_parent, _key.text.trim().isEmpty ? '…' : _key.text.trim())}`',
+              style: muted,
+            ),
+            errorText: shown(_keyError),
           ),
-          errorText: shown(_keyError),
         ),
-      ),
-      const SizedBox(height: 16),
+        const SizedBox(height: 16),
+      ],
       DropdownMenu<_Type>(
         expandedInsets: EdgeInsets.zero,
-        label: const Text('Type'),
+        label: Text(_placeholder ? 'Value type' : 'Type'),
         initialSelection: _type,
         helperText: lostChildren > 0 ? 'Its ${plural(lostChildren, 'child path')} will be removed' : _type.hint,
         onSelected: (v) => setState(() => _type = v ?? _type),
@@ -305,7 +361,12 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
       ],
       if (_type == _Type.map && !_editing) ...[
         const SizedBox(height: 8),
-        Text('Add keys inside it from the storage tree once it exists.', style: muted),
+        Text(
+          _placeholder
+              ? 'Add the keys each value holds from the storage tree once it exists.'
+              : 'Add keys inside it, or a placeholder for any key, from the storage tree once it exists.',
+          style: muted,
+        ),
       ],
       const SizedBox(height: 8),
       if (_type != _Type.map)
@@ -352,7 +413,11 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
         : fields;
 
     return AlertDialog(
-      title: CodeText(_editing ? 'Edit `${widget.path}`' : 'Add storage path'),
+      title: CodeText(
+        _placeholder
+            ? (_editing ? 'Edit placeholder `${widget.path}`' : 'Add placeholder to `$_parent`')
+            : (_editing ? 'Edit `${widget.path}`' : 'Add storage path'),
+      ),
       content: SizedBox(
         width: 460,
         child: SingleChildScrollView(

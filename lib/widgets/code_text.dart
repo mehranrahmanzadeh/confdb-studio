@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../state/account_names.dart';
 import '../theme/app_theme.dart';
 
 /// Text where `backticked` parts are identifiers set in mono, as in the
@@ -34,7 +35,8 @@ class CodeText extends StatelessWidget {
     return Text.rich(
       TextSpan(
         style: base,
-        children: spans(text, base, codeColor: codeColor, codeWeight: codeWeight),
+        // Sentences name accounts by alias; commands (CliDisclosure) keep the ID.
+        children: spans(context.aliased(text), base, codeColor: codeColor, codeWeight: codeWeight),
       ),
       maxLines: maxLines,
       overflow: overflow,

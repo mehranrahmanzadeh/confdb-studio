@@ -110,11 +110,15 @@ class ViewRule {
 
 @immutable
 class ViewDef {
-  const ViewDef({required this.name, required this.rules, this.summary});
+  const ViewDef({required this.name, required this.rules, this.summary, this.parameters = const {}});
 
   final String name;
   final List<ViewRule> rules;
   final String? summary;
+
+  /// The `parameters` stanza: field-filter parameter → presence (`optional`,
+  /// `required-on-read`, `required-on-write` or `required`).
+  final Map<String, String> parameters;
 
   /// The broadest access any rule grants; shown next to the view name.
   RuleAccess get access => rules.isEmpty ? RuleAccess.read : rules.map((r) => r.access).reduce((a, b) => a.union(b));
@@ -126,7 +130,8 @@ class ViewDef {
     return null;
   }
 
-  ViewDef copyWith({String? name, List<ViewRule>? rules}) => ViewDef(name: name ?? this.name, rules: rules ?? this.rules, summary: summary);
+  ViewDef copyWith({String? name, List<ViewRule>? rules}) =>
+      ViewDef(name: name ?? this.name, rules: rules ?? this.rules, summary: summary, parameters: parameters);
 }
 
 enum StorageKind { map, string, int, number, bool, array, any }
@@ -147,7 +152,12 @@ class StorageNode {
     this.secret = false,
     this.alternatives = const [],
     this.raw,
+    this.valuesNode,
+    this.keys,
   });
+
+  /// The path segment for a map's values: any key (a placeholder in rules).
+  static const placeholderKey = '{key}';
 
   const StorageNode.root(List<StorageNode> children) : this(key: '', kind: StorageKind.map, children: children);
 
@@ -173,6 +183,25 @@ class StorageNode {
   /// The original JSON, for definitions the app shows but doesn't model
   /// (alternatives); written back unchanged.
   final Object? raw;
+
+  /// The full definition of map values or array elements when it's more than
+  /// a type name (a nested map, an alias, constraints); [valuesType] labels it.
+  final StorageNode? valuesNode;
+
+  /// What a `{placeholder}` key or `[index]` stands for: the map's values or
+  /// the array's elements.
+  StorageNode? get element =>
+      valuesNode ??
+      (valuesType == null
+          ? null
+          : StorageNode(key: placeholderKey, kind: StorageKind.values.where((k) => k.name == valuesType).firstOrNull ?? StorageKind.any));
+
+  /// `"keys"`: what a map's keys must look like (a string type, e.g. with a
+  /// pattern). Only for maps with a placeholder.
+  final StorageNode? keys;
+
+  /// A map whose keys are free (`"values"`) rather than fixed (`"schema"`).
+  bool get hasPlaceholder => isMap && children.isEmpty && (valuesNode != null || valuesType != null);
 
   bool get isMap => kind == StorageKind.map;
   bool get isEnum => choices.isNotEmpty;
@@ -201,6 +230,10 @@ class StorageNode {
     if (path.isEmpty) return this;
     StorageNode node = this;
     for (final seg in path.split('.')) {
+      if (seg == placeholderKey && node.hasPlaceholder) {
+        node = node.element!;
+        continue;
+      }
       final next = node.children.where((c) => c.key == seg);
       if (next.isEmpty) return null;
       node = next.first;
@@ -208,9 +241,15 @@ class StorageNode {
     return node;
   }
 
+  /// Children, then the placeholder for a map's values (keyed [placeholderKey]).
+  Iterable<StorageNode> get _treeChildren sync* {
+    yield* children;
+    if (hasPlaceholder) yield element!;
+  }
+
   /// Every non-map node with its dotted path, depth first.
   Iterable<(String, StorageNode)> leaves([String prefix = '']) sync* {
-    for (final c in children) {
+    for (final c in _treeChildren) {
       final p = prefix.isEmpty ? c.key : '$prefix.${c.key}';
       if (c.isMap) {
         yield* c.leaves(p);
@@ -222,7 +261,7 @@ class StorageNode {
 
   /// Every node (maps included) with depth and dotted path, depth first.
   Iterable<(int, String, StorageNode)> walk([String prefix = '', int depth = 0]) sync* {
-    for (final c in children) {
+    for (final c in _treeChildren) {
       final p = prefix.isEmpty ? c.key : '$prefix.${c.key}';
       yield (depth, p, c);
       if (c.isMap) yield* c.walk(p, depth + 1);
@@ -232,6 +271,12 @@ class StorageNode {
   /// Returns a copy with [leaf] inserted at [path], creating maps as needed.
   StorageNode insert(String path, StorageNode leaf) {
     final segs = path.split('.');
+    if (segs.first == placeholderKey) {
+      final rest = segs.skip(1).join('.');
+      return withElement(
+        segs.length == 1 ? leaf : (element ?? const StorageNode(key: placeholderKey, kind: StorageKind.map)).insert(rest, leaf),
+      );
+    }
     if (segs.length == 1) {
       return copyWith(children: [...children.where((c) => c.key != segs.first), leaf]);
     }
@@ -255,7 +300,40 @@ class StorageNode {
     secret: secret,
     alternatives: alternatives,
     raw: raw,
+    valuesNode: valuesNode,
+    keys: keys,
   );
+
+  /// This map with [e] as its values (a placeholder), or with none.
+  StorageNode withElement(StorageNode? e) => _with(
+    key: key,
+    valuesNode: e?.withKey(placeholderKey),
+    valuesType: e == null ? null : (e.alternatives.isNotEmpty ? 'any' : e.kind.name),
+    keys: e == null ? null : keys,
+  );
+
+  /// This map with [k] as its `"keys"` constraint.
+  StorageNode withKeys(StorageNode? k) => _with(key: key, valuesNode: valuesNode, valuesType: valuesType, keys: k);
+
+  StorageNode withKey(String k) => _with(key: k, valuesNode: valuesNode, valuesType: valuesType, keys: keys);
+
+  StorageNode _with({required String key, required StorageNode? valuesNode, required String? valuesType, required StorageNode? keys}) =>
+      StorageNode(
+        key: key,
+        kind: kind,
+        children: children,
+        choices: choices,
+        pattern: pattern,
+        min: min,
+        max: max,
+        ephemeral: ephemeral,
+        valuesType: valuesType,
+        secret: secret,
+        alternatives: alternatives,
+        raw: raw,
+        valuesNode: valuesNode,
+        keys: keys,
+      );
 }
 
 /// A confdb-schema: acknowledged assertion or local draft.
@@ -564,6 +642,7 @@ class SnapInfo {
     this.publisherSigned = true,
     this.installNote,
     this.hooks = const [],
+    this.hooksKnown = true,
   });
   final String name;
   final String publisher;
@@ -575,6 +654,9 @@ class SnapInfo {
   final List<ConfdbPlug> plugs;
   final List<DeclaredHook> hooks;
 
+  /// False when the snap's hooks couldn't be read, so [hooks] may be incomplete.
+  final bool hooksKnown;
+
   bool get isCustodian => plugs.any((p) => p.role == PlugRole.custodian);
 
   SnapInfo copyWith({List<ConfdbPlug>? plugs}) => SnapInfo(
@@ -585,7 +667,27 @@ class SnapInfo {
     publisherSigned: publisherSigned,
     installNote: installNote,
     hooks: hooks,
+    hooksKnown: hooksKnown,
   );
+}
+
+/// A Snap Store account, from its `account` assertion: a long random
+/// `account-id` plus the username people know it by.
+@immutable
+class AccountInfo {
+  const AccountInfo({required this.id, this.username, this.displayName});
+  final String id;
+  final String? username;
+  final String? displayName;
+
+  /// What to show instead of [id].
+  String get alias => username ?? displayName ?? id;
+
+  @override
+  bool operator ==(Object other) =>
+      other is AccountInfo && other.id == id && other.username == username && other.displayName == displayName;
+  @override
+  int get hashCode => Object.hash(id, username, displayName);
 }
 
 @immutable

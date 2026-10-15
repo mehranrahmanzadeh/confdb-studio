@@ -191,11 +191,16 @@ class _RulesTableState extends State<RulesTable> {
         .where((x) => x.isError && x.request == r.request && x.storagePath == r.storage && x.suggestedLeaf != null)
         .firstOrNull;
     final dup = widget.issues.any((x) => x.isError && x.request == r.request && x.storagePath == null && r.request.isNotEmpty);
+    // Other problems with this rule's paths (placeholders, syntax, filters).
+    final pathIssue = missing != null
+        ? null
+        : widget.issues.where((x) => x.request == r.request && x.storagePath == r.storage && x.detail != null).firstOrNull;
     final mono = context.text.bodyMedium!.mono;
 
-    InputDecoration deco({required String label, Widget? error, String? hint}) => InputDecoration(
+    InputDecoration deco({required String label, Widget? error, Widget? helper, String? hint}) => InputDecoration(
       isDense: true,
       hintText: hint,
+      helper: helper,
       hintStyle: mono.copyWith(color: c.onSurfaceVariant),
       error: error,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
@@ -244,10 +249,15 @@ class _RulesTableState extends State<RulesTable> {
           decoration: deco(
             label: 'Storage path for ${r.request}',
             hint: 'storage.path',
-            error: missing == null
-                ? null
-                : CodeText('Error: `${r.storage}` does not exist in storage.', style: context.text.bodySmall?.copyWith(color: c.error)),
-          ).copyWith(suffixIcon: missing == null ? null : Icon(AppIcons.error, color: c.error, size: 20)),
+            error: missing != null
+                ? CodeText('Error: `${r.storage}` does not exist in storage.', style: context.text.bodySmall?.copyWith(color: c.error))
+                : pathIssue != null && pathIssue.isError
+                ? CodeText('Error: ${pathIssue.detail}.', style: context.text.bodySmall?.copyWith(color: c.error))
+                : null,
+            helper: pathIssue != null && !pathIssue.isError
+                ? CodeText('Warning: ${pathIssue.detail}.', style: context.text.bodySmall?.copyWith(color: context.status.warning))
+                : null,
+          ).copyWith(suffixIcon: missing != null || (pathIssue?.isError ?? false) ? Icon(AppIcons.error, color: c.error, size: 20) : null),
           onChanged: (v) => _set(i, r.copyWith(storage: v.trim())),
         ),
         if (missing != null)

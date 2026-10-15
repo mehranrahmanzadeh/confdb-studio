@@ -15,6 +15,8 @@ import '../../widgets/fields.dart';
 import '../../widgets/loader.dart';
 import '../../widgets/status_badge.dart';
 import '../access/custodian_guide.dart';
+import '../../state/account_names.dart';
+import '../../widgets/account_name.dart';
 
 class _SchemasData {
   const _SchemasData(this.schemas, this.drafts, this.snaps);
@@ -243,7 +245,10 @@ class _SchemaTable extends StatelessWidget {
         Expanded(flex: 12, child: w[5]),
         const SizedBox(width: 16),
         Expanded(flex: 10, child: w[6]),
-        SizedBox(width: 40, child: w[7]),
+        const SizedBox(width: 16),
+        // Untitled: a badge when a signed schema has unsigned draft changes.
+        SizedBox(width: 132, child: w[7]),
+        SizedBox(width: 40, child: w[8]),
       ],
     );
 
@@ -252,7 +257,7 @@ class _SchemaTable extends StatelessWidget {
       container: true,
       child: SectionCard(
         child: MinWidthScroll(
-          minWidth: 1080,
+          minWidth: 1230,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -266,6 +271,7 @@ class _SchemaTable extends StatelessWidget {
                 child: cells([
                   for (final h in ['Name', 'Summary', 'Revision', 'Views', 'Custodian', 'Signature', 'Lint']) Text(h, style: head),
                   const SizedBox.shrink(),
+                  const SizedBox.shrink(),
                 ]),
               ),
               for (final g in groups.entries) ...[
@@ -273,7 +279,7 @@ class _SchemaTable extends StatelessWidget {
                   minHeight: 40,
                   child: Row(
                     children: [
-                      Text(g.key, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w600)),
+                      AccountName(g.key, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w600)),
                       const SizedBox(width: 8),
                       Text(
                         g.value.every((s) => s.builtIn)
@@ -298,6 +304,8 @@ class _SchemaTable extends StatelessWidget {
     final draft = data.drafts.where((d) => d.id == s.id).firstOrNull;
     final linted = draft ?? s;
     final custodians = custodiansOf(s.id, data.snaps);
+    // A draft of a new schema is already marked "Local draft" under Signature.
+    final changes = draft == null || s.revision == null ? 0 : diffSchemas(s, draft).length;
     final open = s.builtIn ? null : () => context.app.go(SchemaEditorRoute(s.id));
     return Container(
       constraints: const BoxConstraints(minHeight: 60),
@@ -349,11 +357,21 @@ class _SchemaTable extends StatelessWidget {
           ],
         ),
         Align(alignment: Alignment.centerLeft, child: lintBadge(lintSchema(linted))),
+        if (changes == 0)
+          const SizedBox.shrink()
+        else
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Tooltip(
+              message: '${plural(changes, 'change')} not signed yet',
+              child: const StatusBadge.info('Draft changes', icon: AppIcons.edit),
+            ),
+          ),
         if (draft == null)
           const SizedBox.shrink()
         else
           PopupMenuButton<void>(
-            tooltip: 'Actions for ${s.id.path}',
+            tooltip: 'Actions for ${context.aliased(s.id.path)}',
             icon: const Icon(Icons.more_vert),
             itemBuilder: (_) => [
               PopupMenuItem(
@@ -376,7 +394,7 @@ class _SchemaTable extends StatelessWidget {
     final isNew = draft.baseRevision == null;
     final ok = await confirmDestructive(
       context,
-      title: Text(isNew ? 'Delete draft ${draft.id.path}?' : 'Discard draft of ${draft.id.path}?'),
+      title: Text(context.aliased(isNew ? 'Delete draft ${draft.id.path}?' : 'Discard draft of ${draft.id.path}?')),
       action: isNew ? 'Delete draft' : 'Discard draft',
       body: Text(
         isNew
@@ -386,6 +404,8 @@ class _SchemaTable extends StatelessWidget {
     );
     if (!ok) return;
     await repo.discardDraft(draft.id);
-    if (context.mounted) showConfirmation(context, Text(isNew ? 'Deleted draft ${draft.id.path}' : 'Discarded draft of ${draft.id.path}'));
+    if (context.mounted) {
+      showConfirmation(context, Text(context.aliased(isNew ? 'Deleted draft ${draft.id.path}' : 'Discarded draft of ${draft.id.path}')));
+    }
   }
 }

@@ -3,20 +3,24 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../state/account_names.dart';
 import '../theme/app_theme.dart';
 import '../theme/confdb_theme.dart';
 import 'app_icons.dart';
 
-/// An identifier (like `acme/network/wifi-admin`) that can be selected and
-/// copied with one click.
+/// An identifier (like `acme/network/wifi-admin`) that can be copied with one
+/// click. Account IDs show as their aliases; the copy is the real text.
 class CopyableText extends StatefulWidget {
-  const CopyableText(this.text, {super.key, this.style, this.what = 'path'});
+  const CopyableText(this.text, {super.key, this.style, this.what = 'path', this.alias = true});
 
   final String text;
   final TextStyle? style;
 
   /// Names the thing in the tooltip: "Copy path".
   final String what;
+
+  /// Show account IDs in [text] as their aliases. Off where the ID itself is the point.
+  final bool alias;
 
   @override
   State<CopyableText> createState() => _CopyableTextState();
@@ -52,13 +56,22 @@ class _CopyableTextState extends State<CopyableText> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final style = (widget.style ?? context.text.bodyMedium!).mono;
+    final shown = widget.alias ? context.aliased(widget.text) : widget.text;
     return Container(
       padding: const EdgeInsets.only(left: 10),
       decoration: BoxDecoration(color: c.surfaceContainerHigh, borderRadius: BorderRadius.circular(ConfdbRadii.chip)),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Flexible(child: SelectableText(widget.text, style: style, maxLines: 1)),
+          Flexible(
+            child: shown == widget.text
+                ? SelectableText(shown, style: style, maxLines: 1)
+                // The real path, with the account ID, on hover.
+                : Tooltip(
+                    message: widget.text,
+                    child: Text(shown, style: style, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  ),
+          ),
           IconButton(
             tooltip: _copied ? 'Copied' : 'Copy ${widget.what}',
             onPressed: _copy,

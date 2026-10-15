@@ -12,6 +12,7 @@ import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
 import '../../widgets/fields.dart';
 import '../../widgets/status_badge.dart';
+import '../../state/account_names.dart';
 
 /// 7.5 Sign & acknowledge (SignDialog.dc.html, -Progress).
 Future<void> showSignDialog(BuildContext context, ConfdbSchema draft, ConfdbSchema? base) {
@@ -167,7 +168,7 @@ class _SignDialogState extends State<_SignDialog> {
                           enabled: !_busy && keys.isNotEmpty,
                           helper: keys.isEmpty
                               ? 'Loading keys…'
-                              : 'Registered to account ${draft.id.account} · ${plural(keys.length, 'key')} available',
+                              : 'Registered to account ${context.accounts?.alias(draft.id.account) ?? draft.id.account} · ${plural(keys.length, 'key')} available',
                           items: [
                             for (final k in keys)
                               (
@@ -361,7 +362,8 @@ class _NoKeys extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = '$account-release';
+    // Key names are free-form; the alias makes a readable one.
+    final name = '${context.accounts?.alias(account) ?? account}-release';
     Widget step(int n, String text, String command) => Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Column(

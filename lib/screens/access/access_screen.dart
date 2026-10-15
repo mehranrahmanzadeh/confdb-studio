@@ -17,6 +17,8 @@ import '../../widgets/fields.dart';
 import '../../widgets/loader.dart';
 import '../../widgets/status_badge.dart';
 import '../../widgets/step_icon.dart';
+import '../../widgets/account_name.dart';
+import '../../state/account_names.dart';
 
 class _AccessData {
   const _AccessData(this.schemas, this.snaps);
@@ -297,7 +299,7 @@ class _Matrix extends StatelessWidget {
                           decoration: BoxDecoration(
                             border: Border(bottom: BorderSide(color: c.outlineVariant)),
                           ),
-                          child: Text(schemas[i].id.path, style: groupStyle),
+                          child: AccountPath(schemas[i].id.path, style: groupStyle),
                         ),
                       ),
                   ],
@@ -570,7 +572,7 @@ class _WhyCheck extends StatelessWidget {
                           text: '$label  ',
                           style: context.text.labelMedium?.copyWith(fontWeight: FontWeight.w600, color: labelColor),
                         ),
-                        ...CodeText.spans(k.text, context.text.bodyMedium!.copyWith(color: c.onSurfaceVariant)),
+                        ...CodeText.spans(context.aliased(k.text), context.text.bodyMedium!.copyWith(color: c.onSurfaceVariant)),
                       ],
                     ),
                   ),
@@ -652,7 +654,7 @@ class _SnapPanel extends StatelessWidget {
                   Text(p.plug, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500)),
                   const SizedBox(height: 4),
                   Text(
-                    '→ ${p.view.path} · ${schemas.where((s) => s.id == p.view.schemaId).firstOrNull?.view(p.view.view)?.access.label ?? 'unknown view'}',
+                    '→ ${context.aliased(p.view.path)} · ${schemas.where((s) => s.id == p.view.schemaId).firstOrNull?.view(p.view.view)?.access.label ?? 'unknown view'}',
                     style: context.text.bodySmall?.mono.copyWith(color: c.onSurfaceVariant),
                   ),
                   const SizedBox(height: 8),

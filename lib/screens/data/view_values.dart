@@ -14,6 +14,7 @@ import '../../widgets/common.dart';
 import '../../widgets/fields.dart';
 import '../../widgets/status_badge.dart';
 import 'data_explorer_screen.dart';
+import '../../state/account_names.dart';
 
 /// The values table of one view (plus the load-view error and empty state).
 class ViewValues extends StatelessWidget {
@@ -103,7 +104,7 @@ class ViewValues extends StatelessWidget {
 
     final head = tableHeaderStyle(context);
     return Semantics(
-      label: 'Values in ${ref.path}',
+      label: 'Values in ${context.aliased(ref.path)}',
       container: true,
       child: SectionCard(
         child: MinWidthScroll(

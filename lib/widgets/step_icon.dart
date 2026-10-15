@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'app_icons.dart';
 
-enum StepTone { passed, failed, pending, running, neutral, info }
+enum StepTone { passed, failed, warning, pending, running, neutral, info }
 
 /// ComponentSheet "Timeline step": 32px tile with an icon or spinner.
 class StepIcon extends StatelessWidget {
@@ -23,6 +23,7 @@ class StepIcon extends StatelessWidget {
     return switch (tone) {
       StepTone.passed => (s.successContainer, s.onSuccessContainer, s.success),
       StepTone.failed => (c.errorContainer, c.onErrorContainer, c.error),
+      StepTone.warning => (s.warningContainer, s.onWarningContainer, s.warning),
       StepTone.pending => (Colors.transparent, c.onSurfaceVariant, c.onSurfaceVariant),
       StepTone.running => (c.secondaryContainer, c.onSecondaryContainer, c.onSecondaryContainer),
       StepTone.neutral => (c.surfaceContainerHigh, c.onSurfaceVariant, c.onSurfaceVariant),
@@ -36,6 +37,7 @@ class StepIcon extends StatelessWidget {
     final defaultIcon = switch (tone) {
       StepTone.passed => AppIcons.check,
       StepTone.failed => AppIcons.close,
+      StepTone.warning => AppIcons.warning,
       StepTone.pending => Icons.more_horiz,
       StepTone.neutral => AppIcons.dash,
       StepTone.info => AppIcons.hook,

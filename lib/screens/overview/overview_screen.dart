@@ -15,6 +15,8 @@ import '../access/custodian_guide.dart';
 import '../../widgets/domain_badges.dart';
 import '../../widgets/loader.dart';
 import '../../widgets/status_badge.dart';
+import '../../widgets/account_name.dart';
+import '../../state/account_names.dart';
 
 class _OverviewData {
   const _OverviewData(this.schemas, this.snaps, this.changes);
@@ -92,7 +94,7 @@ class _OverviewBody extends StatelessWidget {
         icon: AppIcons.schemas,
         label: 'Schemas',
         value: '${schemas.length}',
-        note: [if (own > 0) '$own in $account', if (builtIn > 0) '$builtIn built-in'].join(' · '),
+        note: [if (own > 0) '$own in ${context.accounts?.alias(account) ?? account}', if (builtIn > 0) '$builtIn built-in'].join(' · '),
         onTap: () => app.go(const SchemasRoute()),
       ),
       _Tile(
@@ -226,12 +228,15 @@ class _RecentActivity extends StatelessWidget {
                                       text: '#${changes[i].id} ',
                                       style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500),
                                     ),
-                                    ...CodeText.spans(changes[i].summary, context.text.bodyMedium!),
+                                    ...CodeText.spans(context.aliased(changes[i].summary), context.text.bodyMedium!),
                                   ],
                                 ),
                               ),
                               if (changes[i].detail != null)
-                                Text(changes[i].detail!, style: context.text.bodySmall?.mono.copyWith(color: c.onSurfaceVariant)),
+                                Text(
+                                  context.aliased(changes[i].detail!),
+                                  style: context.text.bodySmall?.mono.copyWith(color: c.onSurfaceVariant),
+                                ),
                             ],
                           ),
                         ),
@@ -308,7 +313,7 @@ class _SchemaList extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(s.id.path, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500)),
+                AccountPath(s.id.path, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500)),
                 Text(meta, style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
               ],
             ),

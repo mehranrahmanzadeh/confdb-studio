@@ -3,6 +3,7 @@
 import 'dart:convert';
 
 import '../data/models.dart';
+import 'paths.dart';
 
 class SchemaFormatException implements Exception {
   const SchemaFormatException(this.message, {this.line});
@@ -73,13 +74,29 @@ class _StorageDecoder {
   /// Short label for the element type of a map or array: `string`, `map`, `presence`…
   String? typeName(Object? raw) {
     if (raw == null) return null;
-    if (raw is String) {
-      final m = _ref.firstMatch(raw);
-      return m != null ? m[1] : raw;
-    }
     final v = resolve(raw);
+    if (v is String) return v;
     if (v is Map) return v['type'] as String? ?? (v.containsKey('schema') || v.containsKey('values') ? 'map' : 'any');
     return 'any';
+  }
+
+  /// [v] with every alias reference replaced by its definition, since the
+  /// body is written back without `aliases`.
+  Object? inline(Object? v, [int depth = 0]) {
+    final r = resolve(v);
+    if (depth > 32) return r;
+    return switch (r) {
+      Map() => {for (final e in r.entries) e.key: inline(e.value, depth + 1)},
+      List() => [for (final x in r) inline(x, depth + 1)],
+      _ => r,
+    };
+  }
+
+  /// The full definition of a map's values or an array's elements, unless
+  /// it's a plain type name.
+  StorageNode? valuesNode(Object? values, String path) {
+    if (values == null || values is String && !_ref.hasMatch(values)) return null;
+    return node(StorageNode.placeholderKey, values, '$path.${StorageNode.placeholderKey}');
   }
 
   StorageNode node(String key, Object? raw, String path) {
@@ -103,6 +120,8 @@ class _StorageDecoder {
         children: schema is Map ? children(schema, path) : const [],
         ephemeral: v['ephemeral'] == true,
         valuesType: schema is Map ? null : typeName(values),
+        valuesNode: schema is Map ? null : valuesNode(values, path),
+        keys: schema is Map || v['keys'] == null ? null : node('keys', v['keys'], '$path.keys'),
         secret: secret,
       );
     }
@@ -115,6 +134,7 @@ class _StorageDecoder {
       max: v['max'] as num?,
       ephemeral: v['ephemeral'] == true,
       valuesType: typeName(values),
+      valuesNode: valuesNode(values, path),
       secret: secret,
     );
   }
@@ -132,18 +152,26 @@ class _StorageDecoder {
       kind: StorageKind.any,
       alternatives: [for (final a in alts) typeName(a) ?? 'any'],
       secret: secrets.first,
-      raw: raw,
+      raw: inline(raw),
     );
   }
 
   StorageKind kind(String s) => StorageKind.values.where((k) => k.name == s).firstOrNull ?? StorageKind.any;
 }
 
+Object? _encodeValues(StorageNode n) => n.valuesNode == null ? n.valuesType : _encodeNode(n.valuesNode!);
+
 Object _encodeNode(StorageNode n) {
   if (n.raw != null) return n.raw!;
   if (n.isMap) {
     if (n.valuesType != null && n.children.isEmpty) {
-      return {'type': 'map', 'values': n.valuesType, if (n.ephemeral) 'ephemeral': true, if (n.secret) 'visibility': 'secret'};
+      return {
+        'type': 'map',
+        if (n.keys != null) 'keys': _encodeNode(n.keys!),
+        'values': _encodeValues(n),
+        if (n.ephemeral) 'ephemeral': true,
+        if (n.secret) 'visibility': 'secret',
+      };
     }
     return {
       'schema': {for (final c in n.children) c.key: _encodeNode(c)},
@@ -159,7 +187,7 @@ Object _encodeNode(StorageNode n) {
     if (n.pattern != null) 'pattern': n.pattern,
     if (n.min != null) 'min': n.min,
     if (n.max != null) 'max': n.max,
-    if (n.valuesType != null) 'values': n.valuesType,
+    if (n.valuesType != null) 'values': _encodeValues(n),
     if (n.ephemeral) 'ephemeral': true,
     if (n.secret) 'visibility': 'secret',
   };
@@ -211,6 +239,7 @@ List<ViewDef> decodeViews(Object? json) {
       ViewDef(
         name: e.key as String,
         summary: (e.value as Map?)?['summary'] as String?,
+        parameters: _decodeParameters((e.value as Map?)?['parameters'], e.key as String),
         rules: [for (final r in ((e.value as Map?)?['rules'] as List? ?? const [])) ..._flattenRule(r as Map, null, null, null)],
       ),
   ];
@@ -222,8 +251,10 @@ List<ViewRule> _flattenRule(Map r, String? parentRequest, String? parentStorage,
   final storagePart = r['storage'] as String?;
   if (storagePart == null) throw const SchemaFormatException('A view rule has no "storage"');
   final requestPart = r['request'] as String? ?? storagePart;
-  final request = parentRequest == null ? requestPart : '$parentRequest.$requestPart';
-  final storage = parentStorage == null ? storagePart : '$parentStorage.$storagePart';
+  // Like snapd: a nested path starting with `[` is appended without a dot.
+  String join(String? parent, String part) => parent == null ? part : '$parent${part.startsWith('[') ? '' : '.'}$part';
+  final request = join(parentRequest, requestPart);
+  final storage = join(parentStorage, storagePart);
   final access = r['access'] is String ? RuleAccess.parse(r['access'] as String) : (parentAccess ?? RuleAccess.readWrite);
   final content = r['content'];
   if (content is List && content.isNotEmpty) {
@@ -232,10 +263,41 @@ List<ViewRule> _flattenRule(Map r, String? parentRequest, String? parentStorage,
   return [ViewRule(request: request, storage: storage, access: access)];
 }
 
+const _presences = {'optional', 'required-on-write', 'required-on-read', 'required'};
+
+Map<String, String> _decodeParameters(Object? json, String view) {
+  if (json == null) return const {};
+  if (json is! Map) throw SchemaFormatException('"parameters" of view "$view" must be an object');
+  final params = <String, String>{};
+  for (final e in json.entries) {
+    final presence = e.value is Map ? (e.value as Map)['presence'] : 0;
+    if (presence == null || presence == '') {
+      params['${e.key}'] = 'optional';
+    } else if (presence is String && _presences.contains(presence)) {
+      params['${e.key}'] = presence;
+    } else {
+      throw SchemaFormatException('Parameter "${e.key}" of view "$view" needs a "presence" of ${_presences.join(', ')}');
+    }
+  }
+  return params;
+}
+
+/// The view's declared parameters plus any field filter uses without one
+/// (declared optional), since snapd rejects undeclared filter parameters.
+Map<String, String> effectiveParameters(ViewDef v) => {
+  for (final r in v.rules)
+    for (final p in filterParams(r.storage)) p: 'optional',
+  ...v.parameters,
+};
+
 Map<String, Object?> encodeViews(List<ViewDef> views) => {
   for (final v in views)
     v.name: {
       if (v.summary != null) 'summary': v.summary,
+      if (effectiveParameters(v) case final params when params.isNotEmpty)
+        'parameters': {
+          for (final e in params.entries) e.key: {if (e.value != 'optional') 'presence': e.value},
+        },
       'rules': [
         for (final r in v.rules) {'request': r.request, 'storage': r.storage, 'access': r.access.label},
       ],

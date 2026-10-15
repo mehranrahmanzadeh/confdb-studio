@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../state/app_controller.dart';
 import '../state/app_scope.dart';
 import '../state/staging_controller.dart';
 import '../widgets/common.dart';
@@ -39,7 +40,10 @@ class AppShell extends StatelessWidget {
                   children: [
                     Expanded(
                       child: FocusTraversalGroup(
-                        child: KeyedSubtree(key: ValueKey(route.runtimeType), child: buildScreen(route)),
+                        child: KeyedSubtree(
+                          key: ValueKey(route is AuthoringRoute ? AuthoringRoute : route.runtimeType),
+                          child: buildScreen(route),
+                        ),
                       ),
                     ),
                     if (!staging.isEmpty)

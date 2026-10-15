@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../../domain/access.dart';
 import '../../domain/analysis.dart';
+import '../../domain/paths.dart';
 import '../../domain/schema_codec.dart';
 import '../../domain/values.dart';
 import '../confdb_repository.dart';
@@ -128,14 +129,20 @@ class FakeConfdbRepository implements ConfdbRepository {
   }
 
   @override
-  Future<String?> developerAccount() async => 'acme';
+  Future<String?> developerAccount() async => acmeAccountId;
 
   @override
   Future<StoreAccount> storeAccount() async {
     await _wait(0.3);
     if (scenario.loggedOut) return const StoreAccount.loggedOut();
     // Placeholder identity for the sample data.
-    return const StoreAccount(login: StoreLogin.loggedIn, username: 'acme', email: 'dev@acme.example', accountId: 'acme');
+    return const StoreAccount(login: StoreLogin.loggedIn, username: 'acme', email: 'dev@acme.example', accountId: acmeAccountId);
+  }
+
+  @override
+  Future<AccountInfo?> account(String accountId) async {
+    await _wait(0.2);
+    return sampleAccounts[accountId];
   }
 
   @override
@@ -179,6 +186,33 @@ class FakeConfdbRepository implements ConfdbRepository {
     return draft;
   }
 
+  /// The rule a concrete request path (`accelerometers.x`) writes through,
+  /// and the storage path it lands on.
+  static ({ViewRule rule, String storage})? _target(ViewDef view, String key) {
+    for (final rule in view.rules) {
+      final m = matchPath(rule.request, key);
+      if (m != null && m.rest.isEmpty) return (rule: rule, storage: fillPath(rule.storage, m.bindings));
+    }
+    return null;
+  }
+
+  /// Stored values under a placeholder storage path, nested by placeholder
+  /// value: `{x: …, y: …}` for `sensors.{sensor}`.
+  static Map<String, Object?> _collect(Map<String, Object?> stored, String pattern) {
+    final out = <String, Object?>{};
+    for (final e in stored.entries) {
+      final m = matchPath(pattern, e.key);
+      if (m == null || m.rest.isNotEmpty) continue;
+      var level = out;
+      final keys = [for (final p in placeholdersOf(pattern)) m.bindings[p]!];
+      for (final k in keys.take(keys.length - 1)) {
+        level = level.putIfAbsent(k, () => <String, Object?>{}) as Map<String, Object?>;
+      }
+      level[keys.last] = e.value;
+    }
+    return out;
+  }
+
   @override
   Future<ViewSnapshot> readView(ViewRef ref) async {
     await _wait();
@@ -210,14 +244,16 @@ class FakeConfdbRepository implements ConfdbRepository {
         entries.add(ViewEntry(rule: rule, node: node, value: v, hasValue: v != null, hint: hint));
         continue;
       }
-      final has = stored.containsKey(rule.storage);
+      // A placeholder rule reads as the collection of stored keys it matches.
+      final collection = hasPlaceholders(rule.storage) ? _collect(stored, rule.storage) : null;
+      final has = collection != null ? collection.isNotEmpty : stored.containsKey(rule.storage);
       entries.add(
         ViewEntry(
           rule: rule,
           node: node,
           // Write-only values are never read back, and snapd leaves secrets
           // out for non-admins (the app reads as one).
-          value: rule.access.canRead && !(node?.secret ?? false) ? stored[rule.storage] : null,
+          value: rule.access.canRead && !(node?.secret ?? false) ? (collection ?? stored[rule.storage]) : null,
           hasValue: has,
           hint: hint,
         ),
@@ -241,21 +277,22 @@ class FakeConfdbRepository implements ConfdbRepository {
     final paths = <String>{};
     String? schemaError;
     for (final e in values.entries) {
-      final rule = view.ruleFor(e.key);
-      if (rule == null || !rule.access.canWrite) {
+      final target = _target(view, e.key);
+      if (target == null || !target.rule.access.canWrite) {
         throw ConfdbException('${e.key} is not writable through ${ref.path}', kind: ConfdbErrorKind.permissionDenied);
       }
-      final node = resolveStoragePath(schema.storage, rule.storage);
+      final (:rule, :storage) = target;
+      final node = resolveStoragePath(schema.storage, storage);
       final secret = !rule.access.canRead || (node?.secret ?? false);
       if (e.value != null && node != null) {
         schemaError ??= validateValue(node, e.value is String ? e.value as String : displayValue(node, e.value, quoteStrings: false));
       }
-      paths.add(rule.storage);
+      paths.add(storage);
       diffs.add(
         ValueDiff(
           key: e.key,
-          storagePath: rule.storage,
-          before: secret ? '••••••' : displayValue(node, stored[rule.storage], quoteStrings: true),
+          storagePath: storage,
+          before: secret ? '••••••' : displayValue(node, stored[storage], quoteStrings: true),
           after: secret ? secretMask : displayValue(node, e.value, quoteStrings: true),
           secret: secret,
           afterRaw: e.value,
@@ -267,7 +304,7 @@ class FakeConfdbRepository implements ConfdbRepository {
       _nextId--;
       throw ConfdbException(
         'Value doesn’t match the storage schema: $schemaError',
-        command: snapSetCommand(ref, [for (final e in values.entries) (e.key, e.value, !view.ruleFor(e.key)!.access.canRead)]),
+        command: snapSetCommand(ref, [for (final e in values.entries) (e.key, e.value, !_target(view, e.key)!.rule.access.canRead)]),
       );
     }
 
@@ -296,8 +333,7 @@ class FakeConfdbRepository implements ConfdbRepository {
     // net-manager's change-view hook enforces the psk length, like the real custodian.
     String? rejection;
     for (final e in values.entries) {
-      final rule = view.ruleFor(e.key)!;
-      final hint = valueHints[rule.storage];
+      final hint = valueHints[_target(view, e.key)!.storage];
       if (hint?.minLength != null && e.value is String && (e.value as String).length < hint!.minLength!) {
         rejection = '${e.key} must be at least ${hint.minLength} characters';
       }

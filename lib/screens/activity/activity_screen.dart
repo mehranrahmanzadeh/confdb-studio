@@ -12,6 +12,7 @@ import '../../widgets/common.dart';
 import '../../widgets/domain_badges.dart';
 import '../../widgets/fields.dart';
 import '../../widgets/loader.dart';
+import '../../state/account_names.dart';
 
 /// Identifiers in a change summary, e.g. `browser-proxy:proxy-state`.
 Iterable<String> _codes(String s) sync* {
@@ -235,7 +236,10 @@ class _ChangesTable extends StatelessWidget {
                                   children: [
                                     CodeText(ch.summary, style: context.text.bodyMedium),
                                     if (ch.detail != null)
-                                      Text(ch.detail!, style: context.text.bodySmall?.mono.copyWith(color: c.onSurfaceVariant)),
+                                      Text(
+                                        context.aliased(ch.detail!),
+                                        style: context.text.bodySmall?.mono.copyWith(color: c.onSurfaceVariant),
+                                      ),
                                   ],
                                 ),
                                 Row(

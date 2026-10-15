@@ -13,6 +13,7 @@ import '../../widgets/loader.dart';
 import '../../widgets/status_badge.dart';
 import 'entry_detail.dart';
 import 'view_values.dart';
+import '../../state/account_names.dart';
 
 /// Everything the explorer needs besides the values themselves.
 class ExplorerContext {
@@ -253,7 +254,7 @@ class _Toolbar extends StatelessWidget {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(ref.path, style: context.text.bodyLarge?.mono.copyWith(fontSize: 15)),
+                Text(context.aliased(ref.path), style: context.text.bodyLarge?.mono.copyWith(fontSize: 15)),
                 const SizedBox(width: 16),
                 Text(
                   ctx.schema(ref.schemaId)?.view(ref.view)?.access.label ?? '',
@@ -266,7 +267,7 @@ class _Toolbar extends StatelessWidget {
       onSelected: (ref) => app.replace(DataRoute(view: ref)),
       child: Row(
         children: [
-          Expanded(child: Text(view?.path ?? 'No views', overflow: TextOverflow.ellipsis)),
+          Expanded(child: Text(view == null ? 'No views' : context.aliased(view!.path), overflow: TextOverflow.ellipsis)),
           if (def != null)
             StatusBadge.neutral(def.access.label, icon: def.access == RuleAccess.readWrite ? AppIcons.readWrite : AppIcons.eye),
         ],

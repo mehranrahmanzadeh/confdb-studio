@@ -33,23 +33,33 @@ class SchemasRoute extends AppRoute {
   Destination get destination => Destination.schemas;
 }
 
-class SchemaEditorRoute extends AppRoute {
-  const SchemaEditorRoute(this.id, {this.view, this.focusStoragePath});
-  final SchemaId id;
-  final String? view;
-  final String? focusStoragePath;
+/// A schema being authored: the editor, then its playground step.
+sealed class AuthoringRoute extends AppRoute {
+  const AuthoringRoute();
+  SchemaId get id;
+  String? get view;
   @override
   Destination get destination => Destination.schemas;
 }
 
-class PlaygroundRoute extends AppRoute {
-  const PlaygroundRoute(this.id, {required this.view, this.path, this.snap});
+class SchemaEditorRoute extends AuthoringRoute {
+  const SchemaEditorRoute(this.id, {this.view, this.focusStoragePath});
+  @override
   final SchemaId id;
+  @override
+  final String? view;
+  final String? focusStoragePath;
+}
+
+/// The editor's playground step, before signing.
+class PlaygroundRoute extends AuthoringRoute {
+  const PlaygroundRoute(this.id, {required this.view, this.path, this.snap});
+  @override
+  final SchemaId id;
+  @override
   final String view;
   final String? path;
   final String? snap;
-  @override
-  Destination get destination => Destination.schemas;
 }
 
 class DataRoute extends AppRoute {

@@ -23,6 +23,7 @@ class StoragePane extends StatelessWidget {
     required this.onJson,
     required this.onStorage,
     required this.onAdd,
+    required this.onAddPlaceholder,
     required this.onEdit,
     required this.onDelete,
     required this.compact,
@@ -37,6 +38,9 @@ class StoragePane extends StatelessWidget {
 
   /// Add a path inside the map at the given path (null: top level).
   final ValueChanged<String?> onAdd;
+
+  /// Gives an empty map a placeholder (any key).
+  final ValueChanged<String> onAddPlaceholder;
   final ValueChanged<String> onEdit;
   final ValueChanged<String> onDelete;
   final bool compact;
@@ -70,7 +74,17 @@ class StoragePane extends StatelessWidget {
         ? _JsonEditor(storage: draft.storage, warnPaths: unexposed, onChanged: onStorage, expand: !compact)
         : Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [_Tree(draft: draft, unexposed: unexposed, focusPath: focusPath, onAdd: onAdd, onEdit: onEdit, onDelete: onDelete)],
+            children: [
+              _Tree(
+                draft: draft,
+                unexposed: unexposed,
+                focusPath: focusPath,
+                onAdd: onAdd,
+                onAddPlaceholder: onAddPlaceholder,
+                onEdit: onEdit,
+                onDelete: onDelete,
+              ),
+            ],
           );
     return Container(
       decoration: BoxDecoration(
@@ -96,6 +110,7 @@ class _Tree extends StatelessWidget {
     required this.unexposed,
     required this.focusPath,
     required this.onAdd,
+    required this.onAddPlaceholder,
     required this.onEdit,
     required this.onDelete,
   });
@@ -103,6 +118,9 @@ class _Tree extends StatelessWidget {
   final Set<String> unexposed;
   final String? focusPath;
   final ValueChanged<String?> onAdd;
+
+  /// Gives an empty map a placeholder (any key).
+  final ValueChanged<String> onAddPlaceholder;
   final ValueChanged<String> onEdit;
   final ValueChanged<String> onDelete;
 
@@ -124,7 +142,10 @@ class _Tree extends StatelessWidget {
       }
       final users = draft.viewsUsing(path);
       final writeOnly = users.isNotEmpty && users.every((u) => !u.$2.access.canRead);
+      final placeholder = path.split('.').last == StorageNode.placeholderKey;
+      final keyPattern = placeholder ? draft.storage.lookup(path.substring(0, path.lastIndexOf('.')))?.keys?.pattern : null;
       final sub = [
+        if (placeholder) keyPattern == null ? 'any key' : 'keys match $keyPattern',
         if (warn) 'Warning: not exposed by any view',
         if (writeOnly) 'write-only through ${users.map((u) => u.$1.name).toSet().join(', ')}',
         if (node.isEnum) node.choices.join(' | ') else ?node.constraintSummary,
@@ -134,8 +155,15 @@ class _Tree extends StatelessWidget {
       final menu = MenuAnchor(
         menuChildren: [
           MenuItemButton(leadingIcon: const Icon(AppIcons.edit, size: 18), onPressed: () => onEdit(path), child: const Text('Edit')),
-          if (node.isMap && node.valuesType == null)
+          if (node.isMap && !node.hasPlaceholder)
             MenuItemButton(leadingIcon: const Icon(AppIcons.add, size: 18), onPressed: () => onAdd(path), child: const Text('Add child')),
+          // snapd maps have fixed keys ("schema") or a placeholder ("values"), not both.
+          if (node.isMap && !node.hasPlaceholder)
+            MenuItemButton(
+              leadingIcon: const Icon(AppIcons.placeholder, size: 18),
+              onPressed: node.children.isEmpty ? () => onAddPlaceholder(path) : null,
+              child: Text(node.children.isEmpty ? 'Add placeholder' : 'Add placeholder (map must be empty)'),
+            ),
           MenuItemButton(leadingIcon: const Icon(AppIcons.delete, size: 18), onPressed: () => onDelete(path), child: const Text('Delete')),
         ],
         builder: (context, controller, _) => IconButton(
@@ -185,6 +213,7 @@ class _Tree extends StatelessWidget {
                                 runSpacing: 4,
                                 crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
+                                  if (placeholder) Icon(AppIcons.placeholder, size: 16, color: c.onSurfaceVariant),
                                   Text(node.key, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500)),
                                   TypeChip(node.typeLabel),
                                   if (node.secret) const SecretChip(),
