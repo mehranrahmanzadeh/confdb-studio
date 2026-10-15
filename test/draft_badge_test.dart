@@ -11,14 +11,14 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final repo = FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero));
-    await tester.pumpWidget(ConfdbStudioApp(repository: repo, initialRoute: const SchemasRoute()));
+    await tester.pumpWidget(ConfdbStudioApp(repository: repo, initialRoute: const OverviewRoute()));
     await tester.pumpAndSettle();
     // The sample data has one draft: of network, which is signed.
     expect(find.text('Draft changes'), findsOneWidget);
     expect(find.byTooltip(RegExp(r'\d+ changes? not signed yet')), findsOneWidget);
 
     await tester.runAsync(() => repo.discardDraft(networkId));
-    await tester.pumpWidget(ConfdbStudioApp(repository: repo, initialRoute: const SchemasRoute()));
+    await tester.pumpWidget(ConfdbStudioApp(repository: repo, initialRoute: const OverviewRoute()));
     await tester.pumpAndSettle();
     expect(find.text('Draft changes'), findsNothing);
   });

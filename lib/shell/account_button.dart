@@ -8,6 +8,8 @@ import '../widgets/cli_disclosure.dart';
 import '../widgets/code_text.dart';
 import '../widgets/common.dart';
 import '../widgets/copyable_text.dart';
+import '../widgets/status_badge.dart';
+import '../screens/store/store_login_dialog.dart';
 
 /// Bottom of the rail: the Snap Store (snapcraft) account. Warns when
 /// snapcraft isn't logged in, because signing schemas needs a registered key.
@@ -140,7 +142,7 @@ class _AccountPanel extends StatelessWidget {
       body = [Text('Checking snapcraft login…', style: muted), const SizedBox(height: 12), const LinearProgressIndicator()];
     } else if (a.isLoggedIn) {
       body = [
-        Text('Snap Store account', style: context.text.titleSmall),
+        Text('snapcraft · signing keys', style: context.text.titleSmall),
         const SizedBox(height: 12),
         DetailList(
           labelWidth: 96,
@@ -194,9 +196,82 @@ class _AccountPanel extends StatelessWidget {
         width: 380,
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: body),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [const _StoreSection(), const Divider(height: 32), ...body],
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// The app's own Snap Store login (surl), for listing and pushing schemas.
+class _StoreSection extends StatelessWidget {
+  const _StoreSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.store;
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        final c = context.colors;
+        final muted = context.text.bodySmall?.copyWith(color: c.onSurfaceVariant);
+        final session = store.session;
+        final title = Row(
+          children: [
+            Icon(session?.signedIn ?? false ? AppIcons.storeSynced : AppIcons.store, size: 20, color: c.onSurfaceVariant),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Snap Store', style: context.text.titleSmall)),
+            if (session?.env == StoreEnv.staging) const StatusBadge.warning('Staging'),
+          ],
+        );
+        if (session == null) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [title, const SizedBox(height: 12), const LinearProgressIndicator()],
+          );
+        }
+        if (!session.signedIn) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              title,
+              const SizedBox(height: 8),
+              Text('Sign in to see the schemas registered to your account and push new revisions.', style: muted),
+              if (session.detail != null) ...[const SizedBox(height: 8), CodeText(session.detail!, style: muted)],
+              const SizedBox(height: 12),
+              PrimaryButton(label: 'Sign in', icon: AppIcons.signIn, onPressed: () => showStoreLoginDialog(context)),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            title,
+            const SizedBox(height: 12),
+            DetailList(
+              labelWidth: 96,
+              rows: [
+                if (session.username != null) ('Username', MonoText(session.username!)),
+                if (session.email != null) ('Email', Text(session.email!)),
+                ('Store', Text(session.env!.host)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                SecondaryButton(label: 'Refresh', icon: AppIcons.retry, busy: store.checking || store.loading, onPressed: store.refresh),
+                TertiaryButton(label: 'Sign out', icon: AppIcons.signOut, onPressed: store.logout),
+              ],
+            ),
+          ],
+        );
+      },
     );
   }
 }

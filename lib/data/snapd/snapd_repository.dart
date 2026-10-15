@@ -9,6 +9,7 @@ import '../../domain/values.dart';
 import '../confdb_repository.dart';
 import '../drafts/file_draft_store.dart';
 import '../models.dart';
+import '../store/snap_store_client.dart';
 import 'transport.dart';
 
 /// Backend for a real snapd, over either [SnapdTransport].
@@ -25,11 +26,16 @@ class SnapdRepository implements ConfdbRepository {
     this.snapcraftCommand = 'snapcraft',
     SnapdTransport? elevated,
     Future<List<String>?> Function(String snap)? readHooks,
-  }) : _readHooks = readHooks ?? _hooksOnDisk,
+    SnapStoreClient? store,
+  }) : store = store ?? SnapStoreClient(),
+       _readHooks = readHooks ?? _hooksOnDisk,
        _drafts = drafts ?? FileDraftStore(),
        _elevated = elevated ?? SnapCommandTransport(snap: snapCommand);
 
   final SnapdTransport transport;
+
+  /// The Snap Store's confdb-schemas API, through surl.
+  final SnapStoreClient store;
 
   /// The hooks a snap ships, or null when they can't be read.
   final Future<List<String>?> Function(String snap) _readHooks;
@@ -394,32 +400,6 @@ class SnapdRepository implements ConfdbRepository {
 
   // --------------------------------------------------------------- changes
 
-  @override
-  Future<List<ConfdbChange>> listChanges() async {
-    final all = await _sync('GET', '/v2/changes', query: {'select': 'all'}) as List;
-    final plugs = await _confdbPlugs();
-    final ids = {for (final p in plugs) p.id};
-    final changes = [
-      for (final c in all.cast<Map>())
-        if (_isConfdbChange(c, ids)) _change(c, plugs),
-    ];
-    changes.sort((a, b) => b.spawnTime.compareTo(a.spawnTime));
-    return changes;
-  }
-
-  bool _isConfdbChange(Map c, Set<String> plugIds) {
-    final kind = c['kind'] as String? ?? '';
-    if (kind.contains('confdb')) return true;
-    if (kind.contains('connect')) {
-      final summary = c['summary'] as String? ?? '';
-      return plugIds.any((id) => summary.contains('"$id"') || summary.contains(id));
-    }
-    return false;
-  }
-
-  @override
-  Future<ConfdbChange> getChange(int id) async => _change(await _sync('GET', '/v2/changes/$id') as Map, await _confdbPlugs());
-
   static String _ticks(String s) => s.replaceAllMapped(RegExp(r'"([^"]+)"'), (m) => '`${m[1]}`');
 
   static ChangeStatus _status(String? s) => switch (s) {
@@ -593,16 +573,23 @@ class SnapdRepository implements ConfdbRepository {
     if (res.isError) throw _error(res, 'assertions');
   }
 
-  /// `snap known --remote <type> <key>=<value>`: the assertion text, or null if
-  /// the store doesn't have it.
-  Future<String?> _fromStore(String type, String key, String value) async {
-    final r = await Process.run(snapCommand, ['known', '--remote', type, '$key=$value']).timeout(const Duration(seconds: 60));
+  /// `snap known [--remote] <type> <key>=<value>…`: the assertion text, or
+  /// null if snapd (or, with [remote], the store) doesn't have it.
+  Future<String?> _known(String type, Map<String, String> keys, {bool remote = false}) async {
+    final r = await Process.run(snapCommand, [
+      'known',
+      if (remote) '--remote',
+      type,
+      for (final e in keys.entries) '${e.key}=${e.value}',
+    ]).timeout(const Duration(seconds: 60));
     final out = '${r.stdout}';
     return r.exitCode == 0 && out.trim().isNotEmpty ? out : null;
   }
 
+  Future<String?> _fromStore(String type, String key, String value) => _known(type, {key: value}, remote: true);
+
   /// The account and account-key assertions a signed [assertion] depends on.
-  Future<List<String>> _prerequisites(String assertion, SigningKey key) async {
+  Future<List<String>> _prerequisites(String assertion, SigningKey? key) async {
     final headers = assertionHeaders(assertion);
     final account = headers['authority-id'];
     final sha = headers['sign-key-sha3-384'];
@@ -610,17 +597,18 @@ class SnapdRepository implements ConfdbRepository {
       throw const ConfdbException('The signed schema has no signing key in its headers.', command: 'snap sign');
     }
     final accountKey = await _fromStore('account-key', 'public-key-sha3-384', sha);
+    final name = key == null ? 'that signed it' : '`${key.name}`';
     if (accountKey == null) {
       throw ConfdbException(
-        'The key `${key.name}` isn’t registered in the Snap Store, so snapd can’t verify the signature. '
-        'Register it to your account, then sign again.',
-        command: 'snapcraft register-key ${key.name}',
+        'The key $name isn’t registered in the Snap Store, so snapd can’t verify the signature. '
+        '${key == null ? 'Its owner must register it.' : 'Register it to your account, then sign again.'}',
+        command: key == null ? null : 'snapcraft register-key ${key.name}',
       );
     }
     final owner = assertionHeaders(accountKey)['account-id'];
     if (owner != account) {
       throw ConfdbException(
-        'The key `${key.name}` belongs to account `$owner`, but the schema is for account `$account`. '
+        'The key $name belongs to account `$owner`, but the schema is for account `$account`. '
         'Use a key registered to `$account`, or create the schema under `$owner`.',
       );
     }
@@ -639,11 +627,30 @@ class SnapdRepository implements ConfdbRepository {
     return [for (final k in keys.cast<Map>()) SigningKey(name: k['name'] as String, sha3384: k['sha3-384'] as String? ?? '')];
   }
 
+  /// The Store's latest revision of [id], when signed in and it says.
+  Future<int?> _storeRevision(SchemaId id) async {
+    try {
+      return (await store.listSchemas()).where((s) => s.id == id).firstOrNull?.revision;
+    } on ConfdbException {
+      return null;
+    }
+  }
+
   @override
-  Future<ConfdbChange?> signAndAcknowledge(ConfdbSchema draft, SigningKey key, {void Function(SignPhase phase)? onPhase}) async {
+  Future<void> signAndAcknowledge(ConfdbSchema draft, SigningKey key, {bool push = false, void Function(SignPhase phase)? onPhase}) async {
     onPhase?.call(SignPhase.signing);
     final current = (await listSchemas()).where((s) => s.id == draft.id).firstOrNull;
-    final input = signInput(draft, revision: (current?.revision ?? 0) + 1, timestamp: DateTime.now());
+    // Past both the device's and the Store's revision, so the result can be
+    // pushed (or installed) either way.
+    var revision = [current?.revision ?? 0, await _storeRevision(draft.id) ?? 0].reduce((a, b) => a > b ? a : b) + 1;
+    var input = signInput(draft, revision: revision, timestamp: DateTime.now());
+    if (push) {
+      // The Store's own headers, as its docs prescribe for registering.
+      final built = await store.buildAssertion(draft);
+      final suggested = int.tryParse('${built['revision'] ?? ''}') ?? 0;
+      if (suggested > revision) revision = suggested;
+      input = {...built, 'revision': '$revision'};
+    }
     final proc = await Process.start(snapCommand, ['sign', '-k', key.name]);
     proc.stdin.write(jsonEncode(input));
     await proc.stdin.close();
@@ -651,6 +658,10 @@ class SnapdRepository implements ConfdbRepository {
     final err = await proc.stderr.transform(utf8.decoder).join();
     if (await proc.exitCode != 0) {
       throw ConfdbException('`snap sign` failed: ${err.trim()}', command: 'snap sign -k ${key.name}');
+    }
+    if (push) {
+      onPhase?.call(SignPhase.pushing);
+      await store.register(assertion);
     }
     onPhase?.call(SignPhase.acknowledging);
     // snapd only accepts the schema once it knows the signing key, so
@@ -661,7 +672,57 @@ class SnapdRepository implements ConfdbRepository {
     await _ack(assertion);
     await _drafts.discard(draft.id);
     _notify();
-    // Acknowledging is synchronous in snapd, so there is no change to show.
-    return null;
+  }
+
+  // ------------------------------------------------------------ Snap Store
+
+  @override
+  Future<StoreSession> storeSession() async {
+    try {
+      return await store.session();
+    } on ConfdbException catch (e) {
+      if (e.kind == ConfdbErrorKind.unsupported) return StoreSession.signedOut(detail: e.message);
+      rethrow;
+    }
+  }
+
+  @override
+  Future<StoreSession> storeLogin({required String email, required String password, String? otp, StoreEnv env = StoreEnv.production}) =>
+      store.login(email: email, password: password, otp: otp, env: env);
+
+  @override
+  Future<void> storeLogout() => store.logout();
+
+  @override
+  Future<List<ConfdbSchema>> listStoreSchemas() => store.listSchemas();
+
+  @override
+  Future<void> installFromStore(SchemaId id) async {
+    // The Store's API gives headers and body but no signature; snapd fetches
+    // the signed assertion from the store's assertion service instead.
+    final keys = {'account-id': id.account, 'name': id.name};
+    final assertion = await _known('confdb-schema', keys, remote: true);
+    if (assertion == null) {
+      throw ConfdbException(
+        'snapd couldn’t fetch `${id.path}` from the Snap Store. Open it as a draft and sign it on this device instead.',
+        command: 'snap known --remote confdb-schema account-id=${id.account} name=${id.name}',
+        kind: ConfdbErrorKind.notFound,
+      );
+    }
+    for (final prerequisite in await _prerequisites(assertion, null)) {
+      await _ack(prerequisite);
+    }
+    await _ack(assertion);
+    _notify();
+  }
+
+  @override
+  Future<void> pushToStore(SchemaId id) async {
+    final assertion = await _known('confdb-schema', {'account-id': id.account, 'name': id.name});
+    if (assertion == null) {
+      throw ConfdbException('No confdb-schema ${id.path} is acknowledged on this device.', kind: ConfdbErrorKind.notFound);
+    }
+    await store.register(assertion);
+    _notify();
   }
 }

@@ -1,24 +1,8 @@
-import 'package:flutter/material.dart';
-
 import '../data/models.dart';
 import '../domain/analysis.dart';
 import '../util/format.dart';
 import 'app_icons.dart';
 import 'status_badge.dart';
-
-/// Status of a snapd change: Done, Error, In progress…
-class ChangeBadge extends StatelessWidget {
-  const ChangeBadge(this.status, {super.key});
-  final ChangeStatus status;
-
-  @override
-  Widget build(BuildContext context) => switch (status) {
-    ChangeStatus.done => StatusBadge.success(status.label),
-    ChangeStatus.error => StatusBadge.error(status.label),
-    ChangeStatus.doing || ChangeStatus.waiting => StatusBadge.running(status.label),
-    ChangeStatus.undone || ChangeStatus.hold => StatusBadge.neutral(status.label, icon: AppIcons.undo),
-  };
-}
 
 /// Connected custodian plugs for a schema's views.
 List<ConfdbPlug> custodiansOf(SchemaId id, List<SnapInfo> snaps) => [

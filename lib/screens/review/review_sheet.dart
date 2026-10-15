@@ -94,8 +94,6 @@ class _ReviewSheetState extends State<_ReviewSheet> {
       showToast(
         widget.messenger,
         Text(applied.length == 1 ? 'Change #${applied.first.id} applied' : 'Changes ${applied.map((c) => '#${c.id}').join(', ')} applied'),
-        actionLabel: 'View',
-        onAction: () => app.go(const ActivityRoute()),
       );
     }
   }

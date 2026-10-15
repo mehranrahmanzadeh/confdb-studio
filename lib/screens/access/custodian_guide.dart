@@ -115,12 +115,7 @@ class _CustodianGuideState extends State<_CustodianGuide> {
     try {
       final change = await scope.repository.connect(plug);
       navigator.pop();
-      showToast(
-        messenger,
-        CodeText('Connected `${plug.id}` · change #${change.id}'),
-        actionLabel: 'View',
-        onAction: () => scope.app.go(ChangeRoute(change.id)),
-      );
+      showToast(messenger, CodeText('Connected `${plug.id}` · change #${change.id}'));
     } catch (e) {
       if (mounted) {
         setState(() => _busy.remove(plug.id));

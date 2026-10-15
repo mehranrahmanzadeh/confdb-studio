@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../data/confdb_repository.dart';
 import '../data/models.dart';
 
-enum Destination { overview, schemas, data, access, activity }
+enum Destination { overview, data, access }
 
 /// Where the app is. Each route knows its rail destination.
 sealed class AppRoute {
@@ -27,19 +27,15 @@ class OnboardingRoute extends AppRoute {
   Destination get destination => Destination.overview;
 }
 
-class SchemasRoute extends AppRoute {
-  const SchemasRoute();
-  @override
-  Destination get destination => Destination.schemas;
-}
-
 /// A schema being authored: the editor, then its playground step.
 sealed class AuthoringRoute extends AppRoute {
   const AuthoringRoute();
   SchemaId get id;
   String? get view;
+
+  /// Schemas are listed on the overview.
   @override
-  Destination get destination => Destination.schemas;
+  Destination get destination => Destination.overview;
 }
 
 class SchemaEditorRoute extends AuthoringRoute {
@@ -81,19 +77,6 @@ class AccessRoute extends AppRoute {
   Destination get destination => Destination.access;
 }
 
-class ActivityRoute extends AppRoute {
-  const ActivityRoute();
-  @override
-  Destination get destination => Destination.activity;
-}
-
-class ChangeRoute extends AppRoute {
-  const ChangeRoute(this.id);
-  final int id;
-  @override
-  Destination get destination => Destination.activity;
-}
-
 class AppController extends ChangeNotifier {
   AppController({AppRoute initial = const OverviewRoute()}) : _route = initial;
 
@@ -124,10 +107,8 @@ class AppController extends ChangeNotifier {
 
   void goTo(Destination d) => go(switch (d) {
     Destination.overview => const OverviewRoute(),
-    Destination.schemas => const SchemasRoute(),
     Destination.data => const DataRoute(),
     Destination.access => const AccessRoute(),
-    Destination.activity => const ActivityRoute(),
   });
 
   /// Schema editor pane widths, kept for the session.

@@ -44,7 +44,7 @@ class StagedValue {
   /// Unquoted form used by the tray: `band: auto → 5GHz`.
   String get trayText {
     if (secret) {
-      return fromChange != null ? '$key: $secretMask (staged from #$fromChange, fix before applying)' : '$key: $secretMask';
+      return fromChange != null ? '$key: $secretMask (rejected, fix before applying)' : '$key: $secretMask';
     }
     return '$key: ${displayValue(node, before, quoteStrings: false)} → ${displayValue(node, value, quoteStrings: false)}';
   }

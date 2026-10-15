@@ -17,7 +17,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Overview'), findsWidgets);
-    expect(find.text('Activity'), findsOneWidget);
+    expect(find.text('Access'), findsOneWidget);
+    expect(find.text('Schemas'), findsWidgets, reason: 'the overview lists them');
+    expect(find.text('Activity'), findsNothing, reason: 'no Activity tab');
     expect(find.text('snapd 2.77'), findsOneWidget);
     expect(find.text('confdb on'), findsOneWidget);
   });

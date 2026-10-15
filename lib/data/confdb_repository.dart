@@ -51,9 +51,6 @@ abstract interface class ConfdbRepository {
   /// A `null` value unsets the path.
   Future<ConfdbChange> applyValues(ViewRef ref, Map<String, Object?> values);
 
-  Future<List<ConfdbChange>> listChanges();
-  Future<ConfdbChange> getChange(int id);
-
   /// Snaps that have at least one confdb plug.
   Future<List<SnapInfo>> listSnaps();
   Future<ConfdbChange> connect(ConfdbPlug plug);
@@ -61,8 +58,28 @@ abstract interface class ConfdbRepository {
 
   Future<List<SigningKey>> signingKeys();
 
-  /// Signs [draft] as the next revision with [key] and acknowledges it.
-  /// Returns the change when the backend records one (snapd acknowledges
-  /// synchronously, so it returns null).
-  Future<ConfdbChange?> signAndAcknowledge(ConfdbSchema draft, SigningKey key, {void Function(SignPhase phase)? onPhase});
+  /// Signs [draft] as the next revision with [key] and acknowledges it. With
+  /// [push], registers it in the Snap Store first, so a Store refusal leaves
+  /// the device unchanged.
+  Future<void> signAndAcknowledge(ConfdbSchema draft, SigningKey key, {bool push = false, void Function(SignPhase phase)? onPhase});
+
+  // ------------------------------------------------------------ Snap Store
+
+  /// The app's Snap Store login (surl), checked with the Store.
+  Future<StoreSession> storeSession();
+
+  /// Signs in to the Snap Store with an Ubuntu One account and saves the
+  /// login. Throws [ConfdbErrorKind.twoFactorRequired] when [otp] is needed.
+  Future<StoreSession> storeLogin({required String email, required String password, String? otp, StoreEnv env = StoreEnv.production});
+  Future<void> storeLogout();
+
+  /// Schemas the signed-in account registered in the Store, latest revision
+  /// each. [ConfdbSchema.revision] is null when the Store leaves it out.
+  Future<List<ConfdbSchema>> listStoreSchemas();
+
+  /// Fetches the Store's signed revision of [id] and acknowledges it here.
+  Future<void> installFromStore(SchemaId id);
+
+  /// Registers the revision of [id] acknowledged on this device in the Store.
+  Future<void> pushToStore(SchemaId id);
 }

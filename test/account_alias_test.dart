@@ -29,7 +29,7 @@ void main() {
   }
 
   testWidgets('the schemas list names the account by its alias; hover shows the ID, a click copies it', (tester) async {
-    await open(tester, const SchemasRoute());
+    await open(tester, const OverviewRoute());
     expect(find.textContaining(acmeAccountId), findsNothing);
     final name = find.descendant(of: find.byType(AccountName), matching: find.text('acme'));
     expect(name, findsOneWidget);

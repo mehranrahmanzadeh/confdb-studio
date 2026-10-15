@@ -10,7 +10,6 @@ abstract final class AppIcons {
   static const dataSelected = Icons.storage;
   static const access = Icons.power_outlined;
   static const accessSelected = Icons.power;
-  static const activity = Icons.show_chart;
   static const views = Icons.visibility_outlined;
 
   static const ok = Icons.check_circle_outline;
@@ -56,4 +55,13 @@ abstract final class AppIcons {
   static const openDetails = Icons.open_in_new;
   static const hook = Icons.code;
   static const dash = Icons.remove;
+
+  // The Snap Store.
+  static const store = Icons.cloud_outlined;
+  static const storeSynced = Icons.cloud_done_outlined;
+  static const storeOff = Icons.cloud_off_outlined;
+  static const push = Icons.cloud_upload_outlined;
+  static const pull = Icons.cloud_download_outlined;
+  static const signIn = Icons.login;
+  static const signOut = Icons.logout;
 }

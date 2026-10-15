@@ -690,3 +690,20 @@ Future<bool> confirmDestructive(BuildContext context, {required Widget title, re
   );
   return ok ?? false;
 }
+
+/// Asks before an action that isn't destructive but can't be taken back,
+/// like registering an assertion in the Snap Store.
+Future<bool> confirmAction(BuildContext context, {required Widget title, required Widget body, required String action}) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: title,
+      content: SizedBox(width: 440, child: body),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.of(context).pop(true), child: Text(action)),
+      ],
+    ),
+  );
+  return ok ?? false;
+}

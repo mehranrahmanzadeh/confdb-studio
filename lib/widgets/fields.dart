@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import 'app_icons.dart';
-import '../state/account_names.dart';
 
 /// An outlined select with a floating label, opening a menu: the designs'
 /// `<button aria-haspopup="listbox">` fields (View, Snap, Signing key…).
@@ -66,79 +65,43 @@ class OutlinedSelect<T> extends StatelessWidget {
   }
 }
 
-/// Lets a table keep its minimum width and scroll sideways when narrower.
-class MinWidthScroll extends StatelessWidget {
+/// Lets a table keep its minimum width and scroll sideways when narrower,
+/// with a scrollbar that stays visible so the hidden columns are discoverable
+/// without a trackpad.
+class MinWidthScroll extends StatefulWidget {
   const MinWidthScroll({super.key, required this.minWidth, required this.child});
   final double minWidth;
   final Widget child;
 
   @override
+  State<MinWidthScroll> createState() => _MinWidthScrollState();
+}
+
+class _MinWidthScrollState extends State<MinWidthScroll> {
+  final _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      if (constraints.maxWidth >= minWidth) return child;
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SizedBox(width: minWidth, child: child),
+      if (constraints.maxWidth >= widget.minWidth) return widget.child;
+      return Scrollbar(
+        controller: _controller,
+        thumbVisibility: true,
+        trackVisibility: true,
+        child: SingleChildScrollView(
+          controller: _controller,
+          scrollDirection: Axis.horizontal,
+          // Room for the scrollbar under the last row.
+          padding: const EdgeInsets.only(bottom: 12),
+          child: SizedBox(width: widget.minWidth, child: widget.child),
+        ),
       );
     },
   );
-}
-
-/// Activity filter chip: outlined, radius 8, opens a menu of options.
-class FilterMenuChip extends StatelessWidget {
-  const FilterMenuChip({
-    super.key,
-    required this.label,
-    required this.options,
-    required this.value,
-    required this.onChanged,
-    this.monoOptions = false,
-  });
-
-  final String label;
-  final List<String> options;
-  final String? value;
-  final ValueChanged<String?> onChanged;
-  final bool monoOptions;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final selected = value != null;
-    final optionStyle = monoOptions ? context.text.bodyMedium?.mono : context.text.bodyMedium;
-    return MenuAnchor(
-      menuChildren: [
-        MenuItemButton(
-          onPressed: () => onChanged(null),
-          leadingIcon: SizedBox(width: 20, child: value == null ? const Icon(AppIcons.check, size: 20) : null),
-          child: Text('Any ${label.toLowerCase()}'),
-        ),
-        for (final o in options)
-          MenuItemButton(
-            onPressed: () => onChanged(o),
-            leadingIcon: SizedBox(width: 20, child: o == value ? const Icon(AppIcons.check, size: 20) : null),
-            child: Text(context.aliased(o), style: optionStyle),
-          ),
-      ],
-      builder: (context, controller, _) => OutlinedButton(
-        onPressed: options.isEmpty ? null : () => controller.isOpen ? controller.close() : controller.open(),
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size(0, 40),
-          padding: const EdgeInsets.fromLTRB(12, 0, 8, 0),
-          foregroundColor: selected ? c.onSecondaryContainer : c.onSurfaceVariant,
-          backgroundColor: selected ? c.secondaryContainer : null,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (selected) ...[const Icon(AppIcons.check, size: 18), const SizedBox(width: 6)],
-            Text(selected ? '$label: ${context.aliased(value!)}' : label),
-            const SizedBox(width: 6),
-            const Icon(AppIcons.expand, size: 18),
-          ],
-        ),
-      ),
-    );
-  }
 }

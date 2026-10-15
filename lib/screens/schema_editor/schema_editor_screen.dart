@@ -71,7 +71,7 @@ class SchemaEditorScreen extends StatelessWidget {
             icon: AppIcons.schemas,
             title: 'No schema ${route.id.path}',
             body: const Text('It isn’t acknowledged on this device and there is no local draft.'),
-            actions: [SecondaryButton(label: 'All schemas', onPressed: () => context.app.go(const SchemasRoute()))],
+            actions: [SecondaryButton(label: 'All schemas', onPressed: () => context.app.go(const OverviewRoute()))],
           ),
         );
       }

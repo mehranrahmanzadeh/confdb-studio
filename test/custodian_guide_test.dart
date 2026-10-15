@@ -25,7 +25,7 @@ void main() {
     await tester.pumpWidget(
       ConfdbStudioApp(
         repository: FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero, noCustodian: true)),
-        initialRoute: const SchemasRoute(),
+        initialRoute: const OverviewRoute(),
       ),
     );
     await tester.pumpAndSettle();

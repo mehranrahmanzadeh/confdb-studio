@@ -11,18 +11,19 @@ import '../models.dart';
 import 'sample_data.dart';
 
 /// Switches for reaching the empty, loading and error states without snapd.
-/// Parsed from a comma list, e.g. `slow,no-changes`.
+/// Parsed from a comma list, e.g. `slow,no-custodian`.
 class FakeScenario {
   const FakeScenario({
     this.latency = const Duration(milliseconds: 350),
     this.confdbDisabled = false,
     this.snapdUnreachableOnce = false,
     this.noSchemas = false,
-    this.noChanges = false,
     this.loadViewFailsOnce = false,
     this.loggedOut = false,
     this.noKeys = false,
     this.noCustodian = false,
+    this.storeSignedOut = false,
+    this.storeOffline = false,
   });
 
   factory FakeScenario.parse(String spec) {
@@ -32,11 +33,12 @@ class FakeScenario {
       confdbDisabled: flags.contains('disabled'),
       snapdUnreachableOnce: flags.contains('unreachable'),
       noSchemas: flags.contains('no-schemas'),
-      noChanges: flags.contains('no-changes'),
       loadViewFailsOnce: flags.contains('load-view-fails'),
       loggedOut: flags.contains('logged-out'),
       noKeys: flags.contains('no-keys'),
       noCustodian: flags.contains('no-custodian'),
+      storeSignedOut: flags.contains('store-logged-out'),
+      storeOffline: flags.contains('store-offline'),
     );
   }
 
@@ -48,7 +50,6 @@ class FakeScenario {
   /// The first schema load fails as if snapd didn't answer; Retry succeeds.
   final bool snapdUnreachableOnce;
   final bool noSchemas;
-  final bool noChanges;
 
   /// The first read of an ephemeral value fails in the custodian's load-view hook.
   final bool loadViewFailsOnce;
@@ -61,6 +62,12 @@ class FakeScenario {
 
   /// telemetry-agent's custodian plug starts disconnected.
   final bool noCustodian;
+
+  /// The app isn't signed in to the Snap Store.
+  final bool storeSignedOut;
+
+  /// The Snap Store can't be reached.
+  final bool storeOffline;
 }
 
 /// In-memory backend seeded with the design's sample data. Writes behave like
@@ -75,7 +82,9 @@ class FakeConfdbRepository implements ConfdbRepository {
     if (!scenario.noSchemas && !scenario.confdbDisabled) {
       _schemas.addAll([networkRev4, telemetryRev1, systemSnaps]);
       _drafts[networkId] = networkDraft;
+      _storeSchemas.addAll(sampleStoreSchemas);
     }
+    if (!scenario.storeSignedOut) _store = _sampleSession;
     _values.addAll(seedValues());
     _snaps.addAll([
       for (final s in seedSnaps())
@@ -83,7 +92,6 @@ class FakeConfdbRepository implements ConfdbRepository {
             ? s.copyWith(plugs: [for (final p in s.plugs) p.copyWith(state: ConnState.notConnected)])
             : s,
     ]);
-    if (!scenario.noChanges && !scenario.confdbDisabled) _changes.addAll(seedChanges(_clock()));
   }
 
   final FakeScenario scenario;
@@ -93,7 +101,14 @@ class FakeConfdbRepository implements ConfdbRepository {
   final _drafts = <SchemaId, ConfdbSchema>{};
   final _values = <SchemaId, Map<String, Object?>>{};
   final _snaps = <SnapInfo>[];
-  final _changes = <ConfdbChange>[];
+  final _storeSchemas = <ConfdbSchema>[];
+  StoreSession? _store;
+  static const _sampleSession = StoreSession(
+    env: StoreEnv.production,
+    username: 'acme',
+    email: 'dev@acme.example',
+    accountId: acmeAccountId,
+  );
   late bool _enabled;
   late bool _unreachable;
   late bool _loadFails;
@@ -219,6 +234,14 @@ class FakeConfdbRepository implements ConfdbRepository {
     final schema = _schema(ref.schemaId);
     final view = schema.view(ref.view);
     if (view == null) throw ConfdbException('No view ${ref.path}', kind: ConfdbErrorKind.notFound);
+    // snapd refuses reads without a connected custodian. The sample data
+    // leaves some views (and test schemas) without one, so this only fails
+    // when the schema's custodian plugs are all disconnected, as in the
+    // `no-custodian` scenario.
+    final custodianPlugs = _snaps.expand((s) => s.plugs).where((p) => p.role == PlugRole.custodian && p.view.schemaId == schema.id);
+    if (custodianPlugs.isNotEmpty && !custodianPlugs.any((p) => p.state.isConnected)) {
+      throw ConfdbException('cannot read confdb view ${ref.path}: no custodian snap connected');
+    }
     final stored = _values[schema.id] ?? const {};
     final custodian =
         custodianOf(ref, _snaps) ??
@@ -432,24 +455,8 @@ class FakeConfdbRepository implements ConfdbRepository {
         ],
       );
     }
-    _changes.insert(0, change);
     _notify();
     return change;
-  }
-
-  @override
-  Future<List<ConfdbChange>> listChanges() async {
-    await _wait();
-    return List.unmodifiable(_changes);
-  }
-
-  @override
-  Future<ConfdbChange> getChange(int id) async {
-    await _wait(0.5);
-    return _changes.firstWhere(
-      (c) => c.id == id,
-      orElse: () => throw ConfdbException('No change with ID $id', command: 'snap change $id', kind: ConfdbErrorKind.notFound),
-    );
   }
 
   @override
@@ -488,7 +495,6 @@ class FakeConfdbRepository implements ConfdbRepository {
         ),
       ],
     );
-    _changes.insert(0, change);
     _notify();
     return change;
   }
@@ -506,13 +512,19 @@ class FakeConfdbRepository implements ConfdbRepository {
   }
 
   @override
-  Future<ConfdbChange?> signAndAcknowledge(ConfdbSchema draft, SigningKey key, {void Function(SignPhase phase)? onPhase}) async {
+  Future<void> signAndAcknowledge(ConfdbSchema draft, SigningKey key, {bool push = false, void Function(SignPhase phase)? onPhase}) async {
     onPhase?.call(SignPhase.signing);
     await _wait(3);
+    final existing = _schemas.indexWhere((s) => s.id == draft.id);
+    final inStore = _store == null ? null : _storeSchemas.where((s) => s.id == draft.id).firstOrNull?.revision;
+    final revision = [existing < 0 ? 0 : _schemas[existing].revision ?? 0, inStore ?? 0].reduce((a, b) => a > b ? a : b) + 1;
+    if (push) {
+      onPhase?.call(SignPhase.pushing);
+      await _wait(2);
+      _storeReady();
+    }
     onPhase?.call(SignPhase.acknowledging);
     await _wait(3);
-    final existing = _schemas.indexWhere((s) => s.id == draft.id);
-    final revision = (existing < 0 ? 0 : _schemas[existing].revision ?? 0) + 1;
     final signed = ConfdbSchema(
       id: draft.id,
       revision: revision,
@@ -526,33 +538,93 @@ class FakeConfdbRepository implements ConfdbRepository {
     } else {
       _schemas[existing] = signed;
     }
+    if (push) _putInStore(signed);
     _values.putIfAbsent(draft.id, () => {});
     _drafts.remove(draft.id);
-    final now = _clock();
-    final change = ConfdbChange(
-      id: _nextId++,
-      kind: 'ack-schema',
-      summary: 'Acknowledge `${draft.id.path}` rev $revision',
-      detail: 'signed with ${key.name}',
-      initiator: 'You',
-      initiatorKind: InitiatorKind.user,
-      spawnTime: now,
-      readyTime: now,
-      status: ChangeStatus.done,
-      steps: [
-        const ChangeStep(title: 'Initiated by user', state: ChangeStepState.user, meta: '', description: 'You, from Confdb Studio'),
-        ChangeStep(
-          title: 'Sign with `${key.name}`',
-          state: ChangeStepState.passed,
-          meta: '310 ms',
-          description: 'SHA3-384 ${key.shortFingerprint}',
-        ),
-        ChangeStep(title: 'Check signature of `${draft.id.path}` rev $revision', state: ChangeStepState.passed, meta: '6 ms'),
-        ChangeStep(title: 'Acknowledged', state: ChangeStepState.passed, meta: '', description: 'Revision $revision is now in use.'),
-      ],
-    );
-    _changes.insert(0, change);
     _notify();
-    return change;
+  }
+
+  // ------------------------------------------------------------ Snap Store
+
+  /// Throws as the Store would when it can't be used.
+  void _storeReady() {
+    if (scenario.storeOffline) {
+      throw const ConfdbException('Couldn’t reach the Snap Store. Check your connection.', kind: ConfdbErrorKind.offline);
+    }
+    if (_store == null) throw const ConfdbException('Not signed in to the Snap Store.', kind: ConfdbErrorKind.signedOut);
+  }
+
+  void _putInStore(ConfdbSchema s) {
+    _storeSchemas
+      ..removeWhere((x) => x.id == s.id)
+      ..add(s);
+  }
+
+  @override
+  Future<StoreSession> storeSession() async {
+    await _wait(0.5);
+    if (scenario.storeOffline) _storeReady();
+    return _store ?? const StoreSession.signedOut();
+  }
+
+  /// Any password but `wrong` works; the account always asks for a 6-digit code.
+  @override
+  Future<StoreSession> storeLogin({
+    required String email,
+    required String password,
+    String? otp,
+    StoreEnv env = StoreEnv.production,
+  }) async {
+    await _wait(2);
+    if (scenario.storeOffline) _storeReady();
+    if (password == 'wrong') {
+      throw const ConfdbException('Provided email/password is not correct.', kind: ConfdbErrorKind.permissionDenied);
+    }
+    if (otp == null || otp.isEmpty) {
+      throw const ConfdbException('2-factor authentication required.', kind: ConfdbErrorKind.twoFactorRequired);
+    }
+    if (!RegExp(r'^\d{6}$').hasMatch(otp)) {
+      throw const ConfdbException('The authentication code is not correct.', kind: ConfdbErrorKind.permissionDenied);
+    }
+    return _store = StoreSession(env: env, username: _sampleSession.username, email: email, accountId: acmeAccountId);
+  }
+
+  @override
+  Future<void> storeLogout() async {
+    await _wait(0.3);
+    _store = null;
+  }
+
+  @override
+  Future<List<ConfdbSchema>> listStoreSchemas() async {
+    await _wait(2);
+    _storeReady();
+    return List.unmodifiable(_storeSchemas);
+  }
+
+  @override
+  Future<void> installFromStore(SchemaId id) async {
+    await _wait(2);
+    _storeReady();
+    final s = _storeSchemas.firstWhere(
+      (s) => s.id == id,
+      orElse: () => throw ConfdbException('The Snap Store has no ${id.path}.', kind: ConfdbErrorKind.notFound),
+    );
+    final i = _schemas.indexWhere((x) => x.id == id);
+    if (i < 0) {
+      _schemas.insert(0, s);
+    } else {
+      _schemas[i] = s;
+    }
+    _values.putIfAbsent(id, () => {});
+    _notify();
+  }
+
+  @override
+  Future<void> pushToStore(SchemaId id) async {
+    await _wait(2);
+    _storeReady();
+    _putInStore(_schema(id));
+    _notify();
   }
 }

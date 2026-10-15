@@ -15,6 +15,7 @@ const sampleAccounts = {acmeAccountId: AccountInfo(id: acmeAccountId, username: 
 const networkId = SchemaId(acmeAccountId, 'network');
 const telemetryId = SchemaId(acmeAccountId, 'telemetry');
 const systemSnapsId = SchemaId('system', 'snaps');
+const fleetId = SchemaId(acmeAccountId, 'fleet');
 
 const _wifiStorage = StorageNode(
   key: 'wifi',
@@ -267,149 +268,43 @@ const signingKeysSeed = [
   SigningKey(name: 'acme-dev', sha3384: 'Lp0sDk3QwE8rTy2Uo6Ia4Sf9Gh1Jk5Zx7Cv3Bn0Mq2We8Rt4Yu6Io1Pa9Sd5Fg2H'),
 ];
 
-const _wifiAdmin = ViewRef(acmeAccountId, 'network', 'wifi-admin');
+/// acme/fleet rev 2: registered in the Snap Store, not installed on the device.
+const fleetRev2 = ConfdbSchema(
+  id: fleetId,
+  revision: 2,
+  summary: 'Fleet enrolment',
+  signedBy: acmeAccountId,
+  storage: StorageNode.root([
+    StorageNode(
+      key: 'fleet',
+      kind: StorageKind.map,
+      children: [
+        StorageNode(key: 'group', kind: StorageKind.string),
+        StorageNode(key: 'server', kind: StorageKind.string, pattern: r'^https://'),
+        StorageNode(key: 'token', kind: StorageKind.string, secret: true),
+      ],
+    ),
+  ]),
+  views: [
+    ViewDef(
+      name: 'enrol',
+      rules: [
+        ViewRule(request: 'group', storage: 'fleet.group', access: _rw),
+        ViewRule(request: 'server', storage: 'fleet.server', access: _rw),
+        ViewRule(request: 'token', storage: 'fleet.token', access: _w),
+      ],
+    ),
+    ViewDef(
+      name: 'status',
+      rules: [
+        ViewRule(request: 'group', storage: 'fleet.group', access: _r),
+        ViewRule(request: 'server', storage: 'fleet.server', access: _r),
+      ],
+    ),
+  ],
+);
 
-/// Changes #1840–#1845. New changes start at #1846.
-List<ConfdbChange> seedChanges(DateTime now) {
-  DateTime ago(int minutes) => now.subtract(Duration(minutes: minutes));
-  final yesterday = DateTime(now.year, now.month, now.day - 1, 17, 20);
-  return [
-    ConfdbChange(
-      id: 1845,
-      kind: 'set-confdb',
-      summary: 'Set confdb through `$acmeAccountId/network/wifi-admin`',
-      detail: 'band = auto',
-      initiator: 'You',
-      initiatorKind: InitiatorKind.user,
-      spawnTime: ago(12),
-      readyTime: ago(12),
-      status: ChangeStatus.done,
-      view: _wifiAdmin,
-      custodian: 'net-manager',
-      observers: const ['wifi-indicator'],
-      values: const [ValueDiff(key: 'band', storagePath: 'wifi.band', before: '5GHz', after: 'auto', afterRaw: 'auto')],
-      steps: const [
-        ChangeStep(
-          title: 'Initiated by user',
-          state: ChangeStepState.user,
-          meta: '',
-          description: 'You, from Confdb Studio · 1 value through wifi-admin',
-        ),
-        ChangeStep(
-          title: 'Validation against storage schema',
-          state: ChangeStepState.passed,
-          meta: '3 ms',
-          description: '`auto` is one of 2.4GHz, 5GHz, auto.',
-        ),
-        ChangeStep(
-          title: '`change-view-wifi-admin` on `net-manager`',
-          state: ChangeStepState.passed,
-          meta: 'exit 0 · 38 ms',
-          output: HookOutput(stdout: 'band: 5GHz -> auto (accepted)'),
-        ),
-        ChangeStep(
-          title: '`save-view-wifi-admin` on `net-manager`',
-          state: ChangeStepState.passed,
-          meta: 'exit 0 · 52 ms',
-          description: 'Values persisted.',
-        ),
-        ChangeStep(title: 'Committed', state: ChangeStepState.passed, meta: '', description: '`wifi.band` = auto'),
-        ChangeStep(
-          title: '`observe-view-wifi-state` on `wifi-indicator`',
-          state: ChangeStepState.passed,
-          meta: 'exit 0 · 21 ms',
-          description: 'Observer notified after commit.',
-        ),
-      ],
-    ),
-    ConfdbChange(
-      id: 1844,
-      kind: 'connect-snap',
-      summary: 'Connect `wifi-indicator:wifi-state`',
-      detail: 'auto-connect on install',
-      initiator: 'snapd',
-      initiatorKind: InitiatorKind.snap,
-      spawnTime: ago(21),
-      readyTime: ago(21),
-      status: ChangeStatus.done,
-      steps: const [
-        ChangeStep(
-          title: 'Auto-connect on install',
-          state: ChangeStepState.user,
-          meta: '',
-          description: 'snapd connected the plug when `wifi-indicator` was installed.',
-        ),
-        ChangeStep(
-          title: 'Connect `wifi-indicator:wifi-state` to `$acmeAccountId/network/wifi-state`',
-          state: ChangeStepState.passed,
-          meta: '9 ms',
-        ),
-      ],
-    ),
-    ConfdbChange(
-      id: 1842,
-      kind: 'set-confdb',
-      summary: 'Set confdb through `$acmeAccountId/network/wifi-admin`',
-      detail: 'psk = •••',
-      initiator: 'You',
-      initiatorKind: InitiatorKind.user,
-      spawnTime: ago(55),
-      readyTime: ago(55),
-      status: ChangeStatus.error,
-      view: _wifiAdmin,
-      custodian: 'net-manager',
-      observers: const ['wifi-indicator'],
-      error: 'psk must be at least 8 characters',
-      rejectedBy: 'net-manager',
-      values: const [ValueDiff(key: 'psk', storagePath: 'wifi.psk', before: '••••••', after: '•••', secret: true, afterRaw: 'x7q')],
-      steps: const [
-        ChangeStep(
-          title: 'Initiated by user',
-          state: ChangeStepState.user,
-          meta: '',
-          description: 'You, from Confdb Studio · 1 value through wifi-admin',
-        ),
-        ChangeStep(
-          title: 'Validation against storage schema',
-          state: ChangeStepState.passed,
-          meta: '4 ms',
-          description: '`wifi.psk` is a string.',
-        ),
-        ChangeStep(
-          title: '`change-view-wifi-admin` on `net-manager`',
-          state: ChangeStepState.failed,
-          meta: 'exit 1 · 120 ms',
-          description: 'The custodian rejected the change.',
-          output: HookOutput(stderr: 'error: psk must be at least 8 characters'),
-        ),
-        ChangeStep(
-          title: 'Rolled back',
-          state: ChangeStepState.rolledBack,
-          meta: '',
-          description: 'No values were changed. save-view-wifi-admin did not run.',
-        ),
-      ],
-    ),
-    ConfdbChange(
-      id: 1840,
-      kind: 'ack-schema',
-      summary: 'Acknowledge `$acmeAccountId/network` rev 4',
-      detail: 'signed by $acmeAccountId',
-      initiator: 'You',
-      initiatorKind: InitiatorKind.user,
-      spawnTime: yesterday,
-      readyTime: yesterday,
-      status: ChangeStatus.done,
-      steps: const [
-        ChangeStep(title: 'Initiated by user', state: ChangeStepState.user, meta: '', description: 'You, from Confdb Studio'),
-        ChangeStep(
-          title: 'Check signature of `$acmeAccountId/network` rev 4',
-          state: ChangeStepState.passed,
-          meta: '6 ms',
-          description: 'Signed by account `$acmeAccountId`.',
-        ),
-        ChangeStep(title: 'Acknowledged', state: ChangeStepState.passed, meta: '', description: 'Revision 4 is now in use.'),
-      ],
-    ),
-  ];
-}
+/// What the sample account has in the Snap Store: network at the device's
+/// revision, and fleet, which the device doesn't have. telemetry was never
+/// pushed.
+const sampleStoreSchemas = [networkRev4, fleetRev2];

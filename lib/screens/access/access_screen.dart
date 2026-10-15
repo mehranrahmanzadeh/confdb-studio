@@ -9,7 +9,6 @@ import '../../state/app_scope.dart';
 import '../../theme/app_theme.dart';
 import '../../util/format.dart';
 import '../../widgets/app_icons.dart';
-import '../../widgets/chips.dart';
 import '../../widgets/cli_disclosure.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
@@ -61,7 +60,7 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const PageHeader(
     title: 'Access',
-    subtitle: Text('Which snaps reach which views through confdb plugs. Toggle a cell to connect or disconnect.'),
+    subtitle: Text('Which snaps reach which views through confdb plugs. Flip a switch to connect or disconnect a plug.'),
   );
 }
 
@@ -149,12 +148,7 @@ class _AccessBodyState extends State<_AccessBody> {
     setState(() => _busy.add(plug.id));
     try {
       final change = await scope.repository.connect(plug);
-      showToast(
-        messenger,
-        CodeText('Connected `${plug.id}` · change #${change.id}'),
-        actionLabel: 'View',
-        onAction: () => scope.app.go(ChangeRoute(change.id)),
-      );
+      showToast(messenger, CodeText('Connected `${plug.id}` · change #${change.id}'));
     } catch (e) {
       if (mounted) showConfirmation(context, Text('Couldn’t connect ${plug.id}: $e'));
     } finally {
@@ -175,12 +169,7 @@ class _AccessBodyState extends State<_AccessBody> {
     setState(() => _busy.add(plug.id));
     try {
       final change = await scope.repository.disconnect(plug);
-      showToast(
-        messenger,
-        CodeText('Disconnected `${plug.id}` · change #${change.id}'),
-        actionLabel: 'View',
-        onAction: () => scope.app.go(ChangeRoute(change.id)),
-      );
+      showToast(messenger, CodeText('Disconnected `${plug.id}` · change #${change.id}'));
     } catch (e) {
       if (mounted) showConfirmation(context, Text('Couldn’t disconnect ${plug.id}: $e'));
     } finally {
@@ -261,8 +250,29 @@ class _Matrix extends StatelessWidget {
   final ValueChanged<String> onSelect;
   final void Function(ConfdbPlug plug, bool on) onToggle;
 
-  static const _snapCol = 160.0;
-  static const _cellMin = 124.0;
+  static const _snapCol = 176.0;
+  static const _cellMin = 128.0;
+
+  /// Puts a rule on the left of every schema group but the first, so a
+  /// schema's views read as one block in the header and in every row.
+  Widget _groups(BuildContext context, List<Widget> Function(ConfdbSchema s) build) {
+    final c = context.colors;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < schemas.length; i++)
+          Expanded(
+            flex: schemas[i].views.length,
+            child: Container(
+              decoration: BoxDecoration(
+                border: i == 0 ? null : Border(left: BorderSide(color: c.outlineVariant)),
+              ),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: build(schemas[i])),
+            ),
+          ),
+      ],
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -271,106 +281,169 @@ class _Matrix extends StatelessWidget {
       for (final s in schemas)
         for (final v in s.views) s.id.view(v.name),
     ];
-    final minWidth = _snapCol + views.length * _cellMin + 24;
-    final groupStyle = context.text.labelMedium?.mono.copyWith(fontWeight: FontWeight.w600, color: c.onSurfaceVariant);
+    final minWidth = _snapCol + views.length * _cellMin + 2;
+    final label = context.text.labelMedium?.copyWith(fontWeight: FontWeight.w600, color: c.onSurfaceVariant);
+
+    final header = Container(
+      decoration: BoxDecoration(
+        color: c.surfaceContainerLow,
+        border: Border(bottom: BorderSide(color: c.outlineVariant)),
+      ),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: _snapCol,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 8, 10),
+                child: Align(
+                  alignment: Alignment.bottomLeft,
+                  child: Text('Snap', style: label),
+                ),
+              ),
+            ),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border(left: BorderSide(color: c.outlineVariant)),
+                ),
+                child: _groups(
+                  context,
+                  (schema) => [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+                      child: AccountPath(
+                        schema.id.path,
+                        style: context.text.labelLarge?.mono.copyWith(fontWeight: FontWeight.w600),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        for (final v in schema.views)
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(6, 2, 6, 10),
+                              child: Text(
+                                v.name,
+                                textAlign: TextAlign.center,
+                                style: context.text.labelMedium?.mono.copyWith(color: c.onSurfaceVariant),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
 
     return Semantics(
       label: 'Snap access by view',
       container: true,
       child: SectionCard(
-        child: MinWidthScroll(
-          minWidth: minWidth,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Schema group headers.
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    const SizedBox(width: _snapCol),
-                    for (var i = 0; i < schemas.length; i++)
-                      Expanded(
-                        flex: schemas[i].views.length,
-                        child: Container(
-                          margin: EdgeInsets.only(left: i == 0 ? 0 : 8),
-                          padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-                          decoration: BoxDecoration(
-                            border: Border(bottom: BorderSide(color: c.outlineVariant)),
-                          ),
-                          child: AccountPath(schemas[i].id.path, style: groupStyle),
-                        ),
-                      ),
-                  ],
-                ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            MinWidthScroll(
+              minWidth: minWidth,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  header,
+                  for (var i = 0; i < snaps.length; i++) _row(context, snaps[i], first: i == 0),
+                ],
               ),
-              Container(
-                constraints: const BoxConstraints(minHeight: 36),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: c.outlineVariant)),
-                ),
-                child: Row(
+            ),
+            // Outside the scroll, so it wraps to the window.
+            const _Legend(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _row(BuildContext context, SnapInfo snap, {required bool first}) {
+    final c = context.colors;
+    final s = context.status;
+    final isSelected = snap.name == selected;
+    final muted = context.text.bodySmall?.copyWith(color: c.onSurfaceVariant);
+    return ListRow(
+      first: first,
+      color: isSelected ? Color.alphaBlend(c.secondaryContainer.withValues(alpha: 0.35), c.surfaceContainerLowest) : null,
+      padding: EdgeInsets.zero,
+      onTap: () => onSelect(snap.name),
+      semanticLabel: 'Select ${snap.name}',
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // The selected row's accent.
+            Container(width: 3, color: isSelected ? c.primary : null),
+            SizedBox(
+              width: _snapCol - 3,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(13, 12, 8, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    SizedBox(
-                      width: _snapCol,
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 4),
-                        child: Text(
-                          'Snap',
-                          style: context.text.labelMedium?.copyWith(fontWeight: FontWeight.w600, color: c.onSurfaceVariant),
-                        ),
-                      ),
+                    Text(
+                      snap.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w600),
                     ),
-                    for (final v in views)
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text(
-                            v.view,
-                            style: context.text.labelMedium?.mono.copyWith(fontWeight: FontWeight.w400, color: c.onSurfaceVariant),
+                    const SizedBox(height: 4),
+                    Tooltip(
+                      message: snap.publisherSigned
+                          ? 'Publisher-signed by ${snap.publisher}'
+                          : 'Not publisher-signed · ${snap.installNote ?? 'local install'}',
+                      child: Row(
+                        children: [
+                          Icon(
+                            snap.publisherSigned ? AppIcons.verified : AppIcons.upload,
+                            size: 14,
+                            color: snap.publisherSigned ? s.success : c.onSurfaceVariant,
                           ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              for (var i = 0; i < snaps.length; i++)
-                ListRow(
-                  first: i == 0,
-                  color: snaps[i].name == selected ? c.secondaryContainer : null,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  onTap: () => onSelect(snaps[i].name),
-                  semanticLabel: 'Select ${snaps[i].name}',
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 56),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: _snapCol,
-                          child: Padding(
-                            padding: const EdgeInsets.only(left: 4, right: 8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(snaps[i].name, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w600)),
-                                if (snaps[i].publisherSigned) ...[
-                                  const SizedBox(height: 4),
-                                  const StatusBadge.success('Publisher-signed', icon: AppIcons.verified),
-                                ],
-                              ],
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              snap.publisherSigned ? snap.publisher : 'Local install',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: muted,
                             ),
                           ),
-                        ),
-                        for (final v in views) Expanded(child: _cell(context, snaps[i], v)),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
-            ],
-          ),
+              ),
+            ),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border(left: BorderSide(color: c.outlineVariant)),
+                ),
+                child: _groups(
+                  context,
+                  (schema) => [
+                    Expanded(
+                      child: Row(children: [for (final v in schema.views) Expanded(child: _cell(context, snap, schema.id.view(v.name)))]),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -381,54 +454,105 @@ class _Matrix extends StatelessWidget {
     final s = context.status;
     final plug = snap.plugs.where((p) => p.view == view).firstOrNull;
     if (plug == null) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        child: Semantics(
-          label: 'No plug',
-          excludeSemantics: true,
-          child: Text('—', style: TextStyle(color: c.outlineVariant)),
+      return Semantics(
+        label: 'No plug',
+        excludeSemantics: true,
+        child: Tooltip(
+          message: '${snap.name} has no plug for ${context.aliased(view.path)}',
+          child: Center(
+            child: Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(color: c.outlineVariant, shape: BoxShape.circle),
+            ),
+          ),
         ),
       );
     }
     final on = plug.state.isConnected;
     final isBusy = busy.contains(plug.id);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          RoleChip(plug.role),
-          const SizedBox(height: 2),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _CellSwitch(
-                value: on,
-                label: '${on ? 'Disconnect' : 'Connect'} ${plug.id}',
-                onChanged: isBusy ? null : (v) => onToggle(plug, v),
-              ),
-              if (isBusy) ...[
-                const SizedBox(width: 4),
-                const SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2)),
+    final custodian = plug.role == PlugRole.custodian;
+    final fg = on ? c.onSurfaceVariant : s.warning;
+    return Tooltip(
+      message: '${plug.id} · ${plug.role.label} · ${plug.state.label}',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                _CellSwitch(
+                  value: on,
+                  label: '${on ? 'Disconnect' : 'Connect'} ${plug.id}',
+                  onChanged: isBusy ? null : (v) => onToggle(plug, v),
+                ),
+                if (isBusy)
+                  const Positioned(right: -16, child: SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 2))),
               ],
-            ],
-          ),
-          // On its own line so narrow columns never split a word.
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!on) ...[Icon(AppIcons.warning, size: 13, color: s.warning), const SizedBox(width: 3)],
-              Flexible(
-                child: Text(
-                  plug.state.label,
-                  style: context.text.labelMedium?.copyWith(
-                    fontWeight: on ? FontWeight.w400 : FontWeight.w600,
-                    color: on ? c.onSurfaceVariant : s.warning,
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(on ? (custodian ? AppIcons.shield : AppIcons.eye) : AppIcons.warning, size: 13, color: fg),
+                const SizedBox(width: 4),
+                Flexible(
+                  child: Text(
+                    on ? plug.role.label : plug.state.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.labelMedium?.copyWith(color: fg, fontWeight: on ? FontWeight.w500 : FontWeight.w600),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// What the marks in the matrix mean.
+class _Legend extends StatelessWidget {
+  const _Legend();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final s = context.status;
+    final style = context.text.bodySmall?.copyWith(color: c.onSurfaceVariant);
+    Widget item(Widget mark, String text) => Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        mark,
+        const SizedBox(width: 6),
+        Text(text, style: style),
+      ],
+    );
+    Icon icon(IconData i, [Color? color]) => Icon(i, size: 14, color: color ?? c.onSurfaceVariant);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: c.surfaceContainerLow,
+        border: Border(top: BorderSide(color: c.outlineVariant)),
+      ),
+      child: Wrap(
+        spacing: 20,
+        runSpacing: 6,
+        children: [
+          item(icon(AppIcons.shield), 'Custodian: owns the view, runs its hooks'),
+          item(icon(AppIcons.eye), 'Observer: reads and writes through it'),
+          item(icon(AppIcons.warning, s.warning), 'Plug not connected'),
+          item(
+            Container(
+              width: 5,
+              height: 5,
+              decoration: BoxDecoration(color: c.outlineVariant, shape: BoxShape.circle),
+            ),
+            'No plug',
           ),
         ],
       ),

@@ -739,7 +739,38 @@ class StoreAccount {
   bool get isLoggedIn => login == StoreLogin.loggedIn;
 }
 
-enum SignPhase { signing, acknowledging }
+enum SignPhase { signing, pushing, acknowledging }
+
+/// Which Snap Store the app signs in to (surl's `-s`).
+enum StoreEnv {
+  production('Production', 'dashboard.snapcraft.io'),
+  staging('Staging', 'dashboard.staging.snapcraft.io');
+
+  const StoreEnv(this.label, this.host);
+  final String label;
+  final String host;
+
+  static StoreEnv parse(String? s) => s == 'staging' ? staging : production;
+}
+
+/// The app's own Snap Store login (through surl), used to list and register
+/// schemas in the Store. Separate from snapcraft's, which signing keys need.
+@immutable
+class StoreSession {
+  const StoreSession({required this.env, this.username, this.email, this.accountId}) : detail = null;
+  const StoreSession.signedOut({this.detail}) : env = null, username = null, email = null, accountId = null;
+
+  /// Null when signed out.
+  final StoreEnv? env;
+  final String? username;
+  final String? email;
+  final String? accountId;
+
+  /// Why the session isn't usable, e.g. surl isn't installed.
+  final String? detail;
+
+  bool get signedIn => env != null;
+}
 
 /// Thrown by repositories when snapd can't be reached or refuses a request.
 class ConfdbException implements Exception {
@@ -754,4 +785,19 @@ class ConfdbException implements Exception {
   String toString() => message;
 }
 
-enum ConfdbErrorKind { unreachable, permissionDenied, notFound, unsupported, other }
+enum ConfdbErrorKind {
+  unreachable,
+  permissionDenied,
+  notFound,
+  unsupported,
+
+  /// The Snap Store needs a sign-in (or a new one).
+  signedOut,
+
+  /// Ubuntu One wants the one-time code from the account's second factor.
+  twoFactorRequired,
+
+  /// The Snap Store couldn't be reached.
+  offline,
+  other,
+}

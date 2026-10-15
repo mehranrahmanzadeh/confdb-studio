@@ -1,6 +1,7 @@
 import 'package:confdb_studio/data/fake/fake_repository.dart';
 import 'package:confdb_studio/data/fake/sample_data.dart';
 import 'package:confdb_studio/data/models.dart';
+import 'package:confdb_studio/shell/account_button.dart';
 import 'package:confdb_studio/shell/app_shell.dart';
 import 'package:confdb_studio/state/app_controller.dart';
 import 'package:confdb_studio/state/app_scope.dart';
@@ -50,8 +51,6 @@ final shots = <Shot>[
   const Shot('overview', OverviewRoute()),
   const Shot('overview-compact', OverviewRoute(), size: compact),
   const Shot('overview-wide', OverviewRoute(), size: wide),
-  const Shot('schemas-wide', SchemasRoute(), size: wide),
-  const Shot('activity-wide', ActivityRoute(), size: wide),
   const Shot('playground-wide', PlaygroundRoute(networkId, view: 'wifi-admin'), size: wide),
   Shot(
     'account-logged-out',
@@ -65,7 +64,11 @@ final shots = <Shot>[
     size: compact,
     scenario: FakeScenario(latency: Duration.zero, loggedOut: true),
   ),
-  Shot('account-logged-in', const OverviewRoute(), act: (t) async => t.tap(find.text('acme').last)),
+  Shot(
+    'account-logged-in',
+    const OverviewRoute(),
+    act: (t) async => t.tap(find.descendant(of: find.byType(AccountButton), matching: find.text('acme'))),
+  ),
   Shot(
     'data-default',
     const DataRoute(view: wifiAdmin, key: 'band', query: 'band'),
@@ -134,18 +137,6 @@ final shots = <Shot>[
       await t.tap(find.text('Apply 2 changes'));
     },
   ),
-  const Shot('activity', ActivityRoute()),
-  const Shot('activity-empty', ActivityRoute(), scenario: FakeScenario(latency: Duration.zero, noChanges: true)),
-  const Shot('activity-loading', ActivityRoute(), scenario: FakeScenario(latency: Duration(seconds: 3))),
-  const Shot('change-1842', ChangeRoute(1842)),
-  const Shot('change-1845', ChangeRoute(1845)),
-  Shot(
-    'change-1842-retry',
-    const ChangeRoute(1842),
-    act: (t) async {
-      await t.tap(find.text('Retry with fix'));
-    },
-  ),
   const Shot('access', AccessRoute()),
   Shot(
     'access-pass',
@@ -162,11 +153,9 @@ final shots = <Shot>[
     },
   ),
   const Shot('access-compact', AccessRoute(), size: compact),
-  const Shot('schemas', SchemasRoute()),
-  const Shot('schemas-operate', SchemasRoute()),
-  const Shot('schemas-empty', SchemasRoute(), scenario: FakeScenario(latency: Duration.zero, noSchemas: true)),
-  const Shot('schemas-loading', SchemasRoute(), scenario: FakeScenario(latency: Duration(seconds: 3))),
-  const Shot('schemas-error', SchemasRoute(), scenario: FakeScenario(latency: Duration.zero, snapdUnreachableOnce: true)),
+  const Shot('schemas-empty', OverviewRoute(), scenario: FakeScenario(latency: Duration.zero, noSchemas: true)),
+  const Shot('schemas-loading', OverviewRoute(), scenario: FakeScenario(latency: Duration(seconds: 3))),
+  const Shot('schemas-error', OverviewRoute(), scenario: FakeScenario(latency: Duration.zero, snapdUnreachableOnce: true)),
   const Shot('editor', SchemaEditorRoute(networkId)),
   const Shot('editor-compact', SchemaEditorRoute(networkId), size: compact),
   Shot(
@@ -209,7 +198,6 @@ final shots = <Shot>[
     },
   ),
   const Shot('editor-loading', SchemaEditorRoute(networkId), scenario: FakeScenario(latency: Duration(seconds: 3))),
-  const Shot('change-loading', ChangeRoute(1842), scenario: FakeScenario(latency: Duration(seconds: 3))),
   const Shot(
     'playground-loading',
     PlaygroundRoute(networkId, view: 'wifi-admin'),
@@ -247,7 +235,7 @@ final shots = <Shot>[
   const Shot('overview-no-custodian', OverviewRoute(), scenario: FakeScenario(latency: Duration.zero, noCustodian: true)),
   Shot(
     'custodian-guide',
-    const SchemasRoute(),
+    const OverviewRoute(),
     scenario: const FakeScenario(latency: Duration.zero, noCustodian: true),
     size: const Size(1440, 1300),
     act: (t) async => t.tap(find.byTooltip('How to connect a custodian snap')),
@@ -259,7 +247,7 @@ final shots = <Shot>[
   ),
   Shot(
     'discard-draft',
-    const SchemasRoute(),
+    const OverviewRoute(),
     act: (t) async {
       await t.tap(find.byTooltip('Actions for acme/network'));
       // Frame by frame, so the menu finishes opening before the tap.
@@ -376,5 +364,55 @@ final shots = <Shot>[
     OverviewRoute(),
     size: compact,
     scenario: FakeScenario(latency: Duration.zero, confdbDisabled: true),
+  ),
+  Shot('schemas-store-menu', const OverviewRoute(), act: (t) async => t.tap(find.byTooltip('Actions for acme/fleet'))),
+  const Shot('schemas-store-signed-out', OverviewRoute(), scenario: FakeScenario(latency: Duration.zero, storeSignedOut: true)),
+  const Shot('schemas-store-offline', OverviewRoute(), scenario: FakeScenario(latency: Duration.zero, storeOffline: true)),
+  const Shot('schemas-store-compact', OverviewRoute(), size: compact),
+  Shot(
+    'store-login',
+    const OverviewRoute(),
+    scenario: const FakeScenario(latency: Duration.zero, storeSignedOut: true),
+    act: (t) async => t.tap(find.widgetWithText(OutlinedButton, 'Sign in')),
+  ),
+  Shot(
+    'store-login-2fa',
+    const OverviewRoute(),
+    scenario: const FakeScenario(latency: Duration.zero, storeSignedOut: true),
+    act: (t) async {
+      await t.tap(find.widgetWithText(OutlinedButton, 'Sign in'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
+      await t.enterText(find.widgetWithText(TextField, 'Email'), 'dev@acme.example');
+      await t.enterText(find.widgetWithText(TextField, 'Password'), 'secret');
+      await t.pump();
+      await t.tap(find.widgetWithText(FilledButton, 'Sign in'));
+    },
+  ),
+  Shot(
+    'account-store-signed-out',
+    const OverviewRoute(),
+    scenario: const FakeScenario(latency: Duration.zero, storeSignedOut: true),
+    act: (t) async => t.tap(find.descendant(of: find.byType(AccountButton), matching: find.text('acme'))),
+  ),
+  Shot(
+    'sign-store-signed-out',
+    const SchemaEditorRoute(networkId),
+    scenario: const FakeScenario(latency: Duration.zero, storeSignedOut: true),
+    act: (t) async {
+      await t.tap(find.textContaining('Add wifi.signal'));
+      await t.pump(const Duration(milliseconds: 500));
+      await t.tap(find.text('Next'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
+      await t.tap(find.text('Sign & acknowledge').last);
+    },
+  ),
+  const Shot(
+    'data-no-custodian',
+    DataRoute(view: ViewRef(acmeAccountId, 'telemetry', 'telemetry-admin')),
+    scenario: FakeScenario(latency: Duration.zero, noCustodian: true),
   ),
 ];
