@@ -1,7 +1,9 @@
 import 'package:confdb_studio/app.dart';
 import 'package:confdb_studio/data/fake/fake_repository.dart';
 import 'package:confdb_studio/data/fake/sample_data.dart';
+import 'package:confdb_studio/screens/overview/overview_screen.dart';
 import 'package:confdb_studio/screens/playground/playground_screen.dart';
+import 'package:confdb_studio/screens/schema_editor/schema_editor_screen.dart';
 import 'package:confdb_studio/state/app_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -70,5 +72,32 @@ void main() {
     expect(find.byType(PlaygroundPanel), findsNothing);
     expect(find.textContaining('Add wifi.signal'), findsNothing, reason: 'the quick fix is still applied');
     expect(find.text('Next'), findsOneWidget);
+  });
+  testWidgets('Exit on the first step leaves for the overview and keeps the draft', (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero));
+    Future<void> openEditor() async {
+      await tester.pumpWidget(ConfdbStudioApp(repository: repo, initialRoute: const SchemaEditorRoute(networkId)));
+      await tester.pumpAndSettle();
+    }
+
+    await openEditor();
+    await tester.tap(find.textContaining('Add wifi.signal'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.tap(find.text('Exit'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SchemaEditorScreen), findsNothing);
+    expect(find.byType(OverviewScreen), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+    await openEditor();
+    expect(find.textContaining('Add wifi.signal'), findsNothing, reason: 'the draft kept the quick fix');
+
+    // On the playground step the header offers Back instead.
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.text('Exit'), findsNothing);
   });
 }

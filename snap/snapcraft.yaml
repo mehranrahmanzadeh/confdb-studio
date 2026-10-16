@@ -33,7 +33,6 @@ apps:
     command: confdb_studio
     environment:
       CONFDB_BACKEND: rest
-      # Snap Store requests go through surl (see the surl and store-helper parts).
       CONFDB_STORE_PYTHON: $SNAP/usr/bin/python3.12
       CONFDB_STORE_PYTHONPATH: $SNAP/usr/share/surl-venv/lib/python3.12/site-packages
       CONFDB_STORE_HELPER: $SNAP/usr/share/confdb-studio/store_helper.py

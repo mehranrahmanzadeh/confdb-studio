@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../domain/schema_codec.dart';
+import '../app_data.dart';
 import '../models.dart';
 
 /// The Snap Store's confdb-schemas API (`/api/v2/confdb-schemas` on the
@@ -13,14 +14,14 @@ import '../models.dart';
 /// * `CONFDB_STORE_PYTHON` – a Python with surl importable (default `python3`).
 /// * `CONFDB_STORE_PYTHONPATH` – where surl's venv keeps its packages.
 /// * `CONFDB_STORE_HELPER` – the helper script (default `tool/store_helper.py`).
-/// * `CONFDB_STORE_AUTH` – the saved login (default
-///   `$XDG_DATA_HOME/confdb-studio/store.surl`), readable only by the user.
+/// * `CONFDB_STORE_AUTH` – the saved login (default `store.surl` under
+///   [appDataDir]), readable only by the user.
 class SnapStoreClient {
   SnapStoreClient({String? python, String? helper, String? pythonPath, String? authFile, this.timeout = const Duration(seconds: 90)})
     : python = python ?? _env('CONFDB_STORE_PYTHON') ?? 'python3',
       helper = helper ?? _env('CONFDB_STORE_HELPER') ?? 'tool/store_helper.py',
       pythonPath = pythonPath ?? _env('CONFDB_STORE_PYTHONPATH'),
-      authFile = authFile ?? _env('CONFDB_STORE_AUTH') ?? _defaultAuthFile();
+      authFile = authFile ?? _env('CONFDB_STORE_AUTH') ?? appDataPath('store.surl');
 
   final String python;
   final String helper;
@@ -31,12 +32,6 @@ class SnapStoreClient {
   static String? _env(String name) {
     final v = Platform.environment[name];
     return v == null || v.isEmpty ? null : v;
-  }
-
-  static String _defaultAuthFile() {
-    final env = Platform.environment;
-    final base = env['XDG_DATA_HOME'] ?? '${env['HOME'] ?? '.'}/.local/share';
-    return '$base/confdb-studio/store.surl';
   }
 
   static const _api = '/api/v2/confdb-schemas';

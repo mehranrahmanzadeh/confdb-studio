@@ -345,6 +345,13 @@ class _EditorState extends State<_Editor> {
     if (_view != null) app.go(PlaygroundRoute(id, view: _view!));
   }
 
+  /// Leaves the editor for the overview; the draft is kept.
+  Future<void> _exit() async {
+    final app = context.app;
+    await _flush();
+    app.go(const OverviewRoute());
+  }
+
   void _backToEditor() => context.app.go(SchemaEditorRoute(id, view: _view, focusStoragePath: _focusPath));
 
   void _showInStorage(String path) => setState(() {
@@ -430,6 +437,7 @@ class _EditorState extends State<_Editor> {
           onSummary: (v) => _update(_draft.copyWith(summary: v)),
           onNext: _view == null ? null : _openPlayground,
           onBack: _backToEditor,
+          onExit: _exit,
           onSign: () async {
             await _flush();
             if (context.mounted) openSignDialog(context, _draft, widget.base);
@@ -474,6 +482,7 @@ class _Header extends StatelessWidget {
     required this.onSummary,
     required this.onNext,
     required this.onBack,
+    required this.onExit,
     required this.onSign,
   });
   final ConfdbSchema draft;
@@ -485,6 +494,9 @@ class _Header extends StatelessWidget {
   final ValueChanged<String> onSummary;
   final VoidCallback? onNext;
   final VoidCallback onBack;
+
+  /// On the first step: back to the overview.
+  final VoidCallback onExit;
   final VoidCallback onSign;
 
   @override
@@ -532,11 +544,16 @@ class _Header extends StatelessWidget {
                 TertiaryButton(label: 'Back', icon: AppIcons.back, onPressed: onBack),
                 // Playground results are only for trying things; lint errors still block signing.
                 PrimaryButton(label: 'Sign & acknowledge', icon: AppIcons.verified, onPressed: errors > 0 ? null : onSign),
-              ] else
+              ] else ...[
+                Tooltip(
+                  message: 'Back to the overview. The draft is kept.',
+                  child: TertiaryButton(label: 'Exit', icon: AppIcons.close, onPressed: onExit),
+                ),
                 Tooltip(
                   message: errors > 0 ? 'Fix the lint errors first' : 'Try the draft in the view playground, then sign',
                   child: PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
                 ),
+              ],
             ],
           ),
         ],
