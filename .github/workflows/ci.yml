@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.47.7
+
+jobs:
+  check:
+    name: Analyze, format and test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Check formatting
+        run: |
+          git ls-files 'lib/*.dart' 'test/*.dart' \
+            | grep -v '^lib/theme/confdb_theme.dart$' \
+            | xargs dart format --output=none --set-exit-if-changed
+
+      - name: Test
+        run: flutter test
+
+  screenshots:
+    name: Screenshots
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Render this revision
+        run: |
+          flutter pub get
+          flutter test test/visual/screenshots_test.dart --update-goldens \
+            --dart-define=SCREENSHOTS="$RUNNER_TEMP/shots/head"
+
+      - name: Render the base branch
+        if: github.event_name == 'pull_request'
+        id: base
+        run: |
+          base="$RUNNER_TEMP/base-src"
+          git worktree add "$base" "${{ github.event.pull_request.base.sha }}"
+          if [ ! -f "$base/test/visual/screenshots_test.dart" ]; then
+            echo "The base branch has no screenshot test; nothing to compare."
+            exit 0
+          fi
+          cd "$base"
+          flutter pub get
+          # A base that fails to render shouldn't fail this PR's check.
+          if flutter test test/visual/screenshots_test.dart --update-goldens \
+               --dart-define=SCREENSHOTS="$RUNNER_TEMP/shots/base"; then
+            echo "rendered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::The base branch's screenshots didn't render; showing this revision's only."
+          fi
+
+      - name: Compare with the base branch
+        if: steps.base.outputs.rendered == 'true'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          head="$RUNNER_TEMP/shots/head" base="$RUNNER_TEMP/shots/base" out="$RUNNER_TEMP/report"
+          mkdir -p "$out/before" "$out/after"
+          # Read by the "Screenshot comment" workflow, which posts the images on the PR.
+          echo "$PR_NUMBER" > "$out/pr"
+          echo "$BASE_REF" > "$out/base-ref"
+          : > "$out/manifest.tsv"
+          changed=() added=() removed=()
+          for f in "$head"/*.png; do
+            name=$(basename "$f" .png)
+            if [ ! -f "$base/$name.png" ]; then
+              added+=("$name"); cp "$f" "$out/after/"
+              printf 'new\t%s\n' "$name" >> "$out/manifest.tsv"
+            elif ! cmp -s "$f" "$base/$name.png"; then
+              changed+=("$name"); cp "$base/$name.png" "$out/before/"; cp "$f" "$out/after/"
+              printf 'changed\t%s\n' "$name" >> "$out/manifest.tsv"
+            fi
+          done
+          for f in "$base"/*.png; do
+            name=$(basename "$f" .png)
+            if [ ! -f "$head/$name.png" ]; then
+              removed+=("$name"); cp "$f" "$out/before/"
+              printf 'removed\t%s\n' "$name" >> "$out/manifest.tsv"
+            fi
+          done
+          {
+            echo "## Screenshots"
+            if [ ! -s "$out/manifest.tsv" ]; then
+              echo "No visual changes against \`$BASE_REF\`."
+            else
+              echo "Compared with \`$BASE_REF\`. The images are posted on the pull request."
+              echo
+              for n in "${changed[@]}"; do echo "- changed: \`$n\`"; done
+              for n in "${added[@]}"; do echo "- new: \`$n\`"; done
+              for n in "${removed[@]}"; do echo "- removed: \`$n\`"; done
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the comparison
+        if: steps.base.outputs.rendered == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots-report
+          path: ${{ runner.temp }}/report
+          retention-days: 7
+
+      - name: Upload all screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/shots/head
+          retention-days: 14

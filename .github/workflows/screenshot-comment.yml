@@ -1,0 +1,150 @@
+name: Screenshot comment
+
+# Posts CI's before/after screenshots on the pull request.
+#
+# CI renders them from the PR's code with a read-only token (PRs from forks
+# never get more). This workflow runs from the default branch after CI, with
+# write access, and never runs PR code: it only reads the report artifact,
+# treats it as untrusted, pushes the images to the `ci-screenshots` branch so
+# GitHub can show them, and keeps one comment on the PR up to date.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+  pull-requests: write
+
+# One at a time: each run pushes to the ci-screenshots branch.
+concurrency:
+  group: screenshot-comment
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      MARKER: '<!-- confdb-studio-screenshots -->'
+    steps:
+      - name: Download the comparison
+        id: download
+        # Missing when CI didn't compare (no base screenshots, or cancelled).
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: screenshots-report
+          path: report
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Check the report
+        id: report
+        if: steps.download.outcome == 'success'
+        run: |
+          set -euo pipefail
+          pr=$(head -c 20 report/pr | tr -d '[:space:]')
+          [[ "$pr" =~ ^[0-9]+$ ]] || { echo "::error::Bad PR number in the report"; exit 1; }
+          # The report comes from PR code: only trust it for the PR at the commit CI built.
+          current=$(gh api "repos/$REPO/pulls/$pr" --jq .head.sha)
+          if [ "$current" != "$HEAD_SHA" ]; then
+            echo "::notice::#$pr has moved on from $HEAD_SHA; a later run will post its screenshots."
+            exit 0
+          fi
+          base=$(head -c 100 report/base-ref | tr -cd 'A-Za-z0-9._/-')
+          is_png() { [ -f "$1" ] && [ ! -L "$1" ] && [ "$(head -c 8 "$1" | od -An -tx1 | tr -d ' \n')" = 89504e470d0a1a0a ]; }
+          : > checked.tsv
+          while IFS=$'\t' read -r kind name; do
+            [[ "$kind" =~ ^(changed|new|removed)$ && "$name" =~ ^[a-z0-9][a-z0-9-]{0,80}$ ]] || { echo "::error::Bad manifest line"; exit 1; }
+            if [ "$kind" != new ]; then is_png "report/before/$name.png" || { echo "::error::Missing before image for $name"; exit 1; }; fi
+            if [ "$kind" != removed ]; then is_png "report/after/$name.png" || { echo "::error::Missing after image for $name"; exit 1; }; fi
+            printf '%s\t%s\n' "$kind" "$name" >> checked.tsv
+          done < <(head -n 200 report/manifest.tsv)
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "count=$(wc -l < checked.tsv)" >> "$GITHUB_OUTPUT"
+
+      - name: Find the existing comment
+        id: existing
+        if: steps.report.outputs.pr != ''
+        env:
+          PR: ${{ steps.report.outputs.pr }}
+        run: |
+          id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$MARKER\"))) | .id" | head -n 1)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the images
+        id: publish
+        if: steps.report.outputs.count != '' && steps.report.outputs.count != '0'
+        env:
+          PR: ${{ steps.report.outputs.pr }}
+        run: |
+          set -euo pipefail
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          mkdir pages && cd pages
+          git init -q
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          if git fetch -q --depth 1 origin ci-screenshots 2>/dev/null; then
+            git checkout -q -b ci-screenshots FETCH_HEAD
+          else
+            git checkout -q --orphan ci-screenshots
+            echo 'Screenshots for pull request comments, written by the "Screenshot comment" workflow.' > README.md
+          fi
+          # Only the latest comparison per PR is kept.
+          rm -rf "pr-$PR"
+          dir="pr-$PR/$HEAD_SHA"
+          mkdir -p "$dir/before" "$dir/after"
+          while IFS=$'\t' read -r kind name; do
+            [ "$kind" = new ] || cp "../report/before/$name.png" "$dir/before/"
+            [ "$kind" = removed ] || cp "../report/after/$name.png" "$dir/after/"
+          done < ../checked.tsv
+          git add -A
+          git commit -q -m "Screenshots for #$PR at ${HEAD_SHA:0:7}"
+          git push -q origin ci-screenshots
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Write the comment
+        if: steps.report.outputs.pr != '' && (steps.publish.outputs.sha != '' || steps.existing.outputs.id != '')
+        env:
+          PR: ${{ steps.report.outputs.pr }}
+          BASE: ${{ steps.report.outputs.base }}
+          COUNT: ${{ steps.report.outputs.count }}
+          SHA: ${{ steps.publish.outputs.sha }}
+          COMMENT_ID: ${{ steps.existing.outputs.id }}
+        run: |
+          set -euo pipefail
+          url() { echo "https://github.com/$REPO/raw/$SHA/pr-$PR/$HEAD_SHA/$1/$2.png"; }
+          img() { echo "<img src=\"$(url "$1" "$2")\" width=\"420\" alt=\"$2 $1\">"; }
+          {
+            echo "$MARKER"
+            echo "### Screenshots"
+            if [ "$COUNT" = 0 ]; then
+              echo "No visual changes against \`$BASE\` at ${HEAD_SHA:0:7}."
+            else
+              echo "$COUNT screenshot(s) differ from \`$BASE\` at ${HEAD_SHA:0:7}."
+              echo
+              [ "$COUNT" -le 8 ] || printf '<details>\n<summary>Show all %s</summary>\n\n' "$COUNT"
+              echo "| Screen | Before | After |"
+              echo "| --- | --- | --- |"
+              while IFS=$'\t' read -r kind name; do
+                before='—' after='—'
+                [ "$kind" = new ] || before=$(img before "$name")
+                [ "$kind" = removed ] || after=$(img after "$name")
+                echo "| \`$name\`<br>$kind | $before | $after |"
+              done < checked.tsv
+              [ "$COUNT" -le 8 ] || printf '\n</details>\n'
+            fi
+          } > body.md
+          if [ -n "$COMMENT_ID" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$COMMENT_ID" -F body=@body.md > /dev/null
+          else
+            gh api "repos/$REPO/issues/$PR/comments" -F body=@body.md > /dev/null
+          fi
