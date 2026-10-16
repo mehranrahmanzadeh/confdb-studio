@@ -13,6 +13,7 @@ import '../../widgets/common.dart';
 import '../../widgets/fields.dart';
 import '../../widgets/status_badge.dart';
 import '../../state/account_names.dart';
+import '../store/store_login_dialog.dart';
 
 /// 7.5 Sign & acknowledge (SignDialog.dc.html, -Progress).
 Future<void> showSignDialog(BuildContext context, ConfdbSchema draft, ConfdbSchema? base) {
@@ -58,7 +59,17 @@ class _SignDialogState extends State<_SignDialog> {
   SignPhase? _phase;
   Object? _error;
 
-  int get _revision => (widget.base?.revision ?? 0) + 1;
+  /// Register in the Snap Store too; on by default when signed in.
+  late bool _push = widget.scope.store.signedIn;
+  bool get _pushing => _push && widget.scope.store.signedIn;
+
+  /// Past both this device's and the Store's revision, as the backend signs it.
+  int get _revision {
+    final inStore = widget.scope.store.schema(widget.draft.id)?.revision ?? 0;
+    final here = widget.base?.revision ?? 0;
+    return (inStore > here ? inStore : here) + 1;
+  }
+
   bool get _busy => _phase != null;
 
   Future<void> _sign() async {
@@ -70,21 +81,27 @@ class _SignDialogState extends State<_SignDialog> {
       _phase = SignPhase.signing;
     });
     try {
-      final change = await widget.scope.repository.signAndAcknowledge(
+      final push = _pushing;
+      final revision = _revision;
+      await widget.scope.repository.signAndAcknowledge(
         widget.draft,
         key,
+        push: push,
         onPhase: (p) {
           if (mounted) setState(() => _phase = p);
         },
       );
+      if (push) widget.scope.store.reloadSchemas();
       if (!mounted) return;
       Navigator.of(context).pop();
       app.go(const OverviewRoute());
       showToast(
         widget.messenger,
-        CodeText('`${widget.draft.id.path}` revision $_revision signed and acknowledged'),
-        actionLabel: 'View',
-        onAction: () => app.go(change == null ? const SchemasRoute() : ChangeRoute(change.id)),
+        CodeText(
+          push
+              ? '`${widget.draft.id.path}` revision $revision signed, pushed to the Snap Store and acknowledged'
+              : '`${widget.draft.id.path}` revision $revision signed and acknowledged',
+        ),
       );
     } catch (e) {
       if (mounted) {
@@ -225,6 +242,8 @@ class _SignDialogState extends State<_SignDialog> {
                               '${users.length == 1 ? users.first : '${users.sublist(0, users.length - 1).join(', ')} and ${users.last}'} use the new rules from their next request.',
                             ),
                     ),
+                    const SizedBox(height: 8),
+                    _StoreOption(push: _push, busy: _busy, revision: _revision, onChanged: (v) => setState(() => _push = v)),
                     const SizedBox(height: 16),
                     CliDisclosure('snap sign -k ${key?.name ?? '<key>'} < $file.json > $file.assert && sudo snap ack $file.assert'),
                     if (_busy) ...[
@@ -239,18 +258,21 @@ class _SignDialogState extends State<_SignDialog> {
                                 SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2.5, color: c.secondary)),
                                 const SizedBox(width: 10),
                                 Expanded(
-                                  child: Text(
-                                    _phase == SignPhase.signing
-                                        ? 'Signing with ${key?.name} …'
-                                        : 'Signed with ${key?.name} · acknowledging revision $_revision with snapd…',
-                                    style: context.text.bodyMedium,
-                                  ),
+                                  child: Text(switch (_phase) {
+                                    SignPhase.signing => 'Signing with ${key?.name} …',
+                                    SignPhase.pushing => 'Signed with ${key?.name} · registering revision $_revision in the Snap Store…',
+                                    _ => 'Signed with ${key?.name} · acknowledging revision $_revision with snapd…',
+                                  }, style: context.text.bodyMedium),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 8),
                             LinearProgressIndicator(
-                              value: _phase == SignPhase.signing ? 0.25 : 0.62,
+                              value: switch (_phase) {
+                                SignPhase.signing => 0.2,
+                                SignPhase.pushing => 0.45,
+                                _ => 0.7,
+                              },
                               minHeight: 4,
                               borderRadius: BorderRadius.circular(2),
                             ),
@@ -391,6 +413,60 @@ class _NoKeys extends StatelessWidget {
         ],
       ),
       actions: [OnContainerButton(label: 'Refresh keys', icon: AppIcons.retry, onPressed: onRefresh)],
+    );
+  }
+}
+
+/// Whether to also register the revision in the Snap Store.
+class _StoreOption extends StatelessWidget {
+  const _StoreOption({required this.push, required this.busy, required this.revision, required this.onChanged});
+  final bool push;
+  final bool busy;
+  final int revision;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.store;
+    return ListenableBuilder(
+      listenable: store,
+      builder: (context, _) {
+        final c = context.colors;
+        final muted = context.text.bodySmall?.copyWith(color: c.onSurfaceVariant);
+        final session = store.session;
+        if (!(session?.signedIn ?? false)) {
+          return Row(
+            children: [
+              Icon(AppIcons.storeOff, size: 20, color: c.onSurfaceVariant),
+              const SizedBox(width: 12),
+              Expanded(child: Text('Not signed in to the Snap Store: this revision stays on this device.', style: muted)),
+              const SizedBox(width: 8),
+              TertiaryButton(
+                label: 'Sign in',
+                icon: AppIcons.signIn,
+                onPressed: busy
+                    ? null
+                    : () async {
+                        if (await showStoreLoginDialog(context)) onChanged(true);
+                      },
+              ),
+            ],
+          );
+        }
+        return CheckboxListTile(
+          value: push,
+          onChanged: busy ? null : (v) => onChanged(v ?? false),
+          contentPadding: EdgeInsets.zero,
+          controlAffinity: ListTileControlAffinity.leading,
+          mouseCursor: WidgetStateMouseCursor.clickable,
+          title: const Text('Push to the Snap Store'),
+          subtitle: Text(
+            'Registers revision $revision in the Store (${session!.env!.host}) before acknowledging it here. '
+            'The signing key must be registered there.',
+            style: muted,
+          ),
+        );
+      },
     );
   }
 }

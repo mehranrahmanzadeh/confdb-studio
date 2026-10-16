@@ -14,7 +14,7 @@ void main() {
     await tester.pumpWidget(
       ConfdbStudioApp(
         repository: FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero)),
-        initialRoute: const SchemasRoute(),
+        initialRoute: const OverviewRoute(),
       ),
     );
     await tester.pumpAndSettle();
@@ -40,10 +40,10 @@ void main() {
     for (final MapEntry(:key, :value) in clickable.entries) {
       expect(await cursorAt(value), SystemMouseCursors.click, reason: key);
     }
-    final railGap = Offset(tester.getCenter(find.text('Activity')).dx, tester.getBottomLeft(find.text('Activity')).dy + 120);
+    final railGap = Offset(tester.getCenter(find.text('Access')).dx, tester.getBottomLeft(find.text('Access')).dy + 120);
     expect(await cursorAt(railGap), isNot(SystemMouseCursors.click), reason: 'empty rail space');
     expect(
-      await cursorAt(tester.getCenter(find.textContaining('acknowledged on this device'))),
+      await cursorAt(tester.getCenter(find.textContaining('on this device and in the Snap Store'))),
       isNot(SystemMouseCursors.click),
       reason: 'page subtitle',
     );

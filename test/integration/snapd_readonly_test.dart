@@ -27,11 +27,10 @@ void main() {
         print('${t.name}: ${schemas.map((s) => '${s.id.path} (${s.views.length} views, built-in: ${s.builtIn})').join(', ')}');
       });
 
-      test('snaps, connections and changes', () async {
+      test('snaps and connections', () async {
         final snaps = await repo.listSnaps();
-        final changes = await repo.listChanges();
         // ignore: avoid_print
-        print('${t.name}: ${snaps.length} snaps with confdb plugs, ${changes.length} confdb changes');
+        print('${t.name}: ${snaps.length} snaps with confdb plugs');
       });
 
       test('reading a view reports permission problems as ConfdbException', () async {

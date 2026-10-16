@@ -10,7 +10,7 @@ import '../../widgets/app_icons.dart';
 import '../../widgets/cli_disclosure.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
-import '../schemas/schemas_list_screen.dart';
+import '../schemas/schemas_section.dart';
 import '../../state/account_names.dart';
 import '../../widgets/account_name.dart';
 

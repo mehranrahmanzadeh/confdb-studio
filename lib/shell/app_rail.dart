@@ -7,7 +7,7 @@ import '../widgets/app_icons.dart';
 import 'account_button.dart';
 import 'snapd_status.dart';
 
-/// Rail.dc.html: Overview, Schemas, Data, Access, Activity. Icons only (with
+/// Rail.dc.html: Overview (with the schemas), Data, Access. Icons only (with
 /// tooltips) when compact.
 class AppRail extends StatelessWidget {
   const AppRail({super.key, required this.selected, required this.onSelected, required this.compact});
@@ -18,10 +18,8 @@ class AppRail extends StatelessWidget {
 
   static const _items = [
     (Destination.overview, 'Overview', AppIcons.overview, AppIcons.overviewSelected),
-    (Destination.schemas, 'Schemas', AppIcons.schemas, AppIcons.schemasSelected),
     (Destination.data, 'Data', AppIcons.data, AppIcons.dataSelected),
     (Destination.access, 'Access', AppIcons.access, AppIcons.accessSelected),
-    (Destination.activity, 'Activity', AppIcons.activity, AppIcons.activity),
   ];
 
   @override

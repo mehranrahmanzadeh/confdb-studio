@@ -14,7 +14,7 @@ import 'data/snapd/transport.dart';
 /// * `rest` – snapd's REST API on `/run/snapd.socket`.
 /// * `shell` – the `snap` command (`snap debug api`, `pkexec` for writes).
 ///
-/// Fake states: `CONFDB_SCENARIO=slow,disabled,unreachable,no-schemas,no-changes,load-view-fails,no-custodian`.
+/// Fake states: `CONFDB_SCENARIO=slow,disabled,unreachable,no-schemas,load-view-fails,no-custodian`.
 ConfdbRepository createRepository() {
   String setting(String name, String fromDefine) => fromDefine.isNotEmpty ? fromDefine : (Platform.environment[name] ?? '');
   final backend = setting('CONFDB_BACKEND', const String.fromEnvironment('CONFDB_BACKEND'));

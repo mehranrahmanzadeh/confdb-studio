@@ -225,7 +225,7 @@ class _ValueCell extends StatelessWidget {
         Text(s.afterText, style: mono.copyWith(fontWeight: FontWeight.w600)),
         s.isRejected ? const StatusBadge.error('Rejected') : const StatusBadge.info('Pending', icon: AppIcons.edit),
       ]);
-      if (s.secret) note = 'Write-only${s.fromChange != null ? ' · staged from change #${s.fromChange}' : ''}';
+      if (s.secret) note = 'Write-only${s.fromChange != null ? ' · rejected, fix before applying' : ''}';
     } else if (e.loadError != null) {
       parts.addAll([Text('Unavailable', style: muted), const EphemeralChip(), const StatusBadge.error('Load failed')]);
       note = e.loadError;

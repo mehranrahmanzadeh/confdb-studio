@@ -2,20 +2,17 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../../domain/schema_codec.dart';
+import '../app_data.dart';
 import '../models.dart';
 
 /// Drafts live on disk as `snap sign` input plus a few Studio fields, in
-/// `$XDG_DATA_HOME/confdb-studio/drafts/<account>_<name>.json`.
+/// `drafts/<account>_<name>.json` under [appDataDir].
 class FileDraftStore {
   FileDraftStore({Directory? dir}) : dir = dir ?? _defaultDir();
 
   final Directory dir;
 
-  static Directory _defaultDir() {
-    final env = Platform.environment;
-    final base = env['XDG_DATA_HOME'] ?? '${env['HOME'] ?? '.'}/.local/share';
-    return Directory('$base/confdb-studio/drafts');
-  }
+  static Directory _defaultDir() => Directory(appDataPath('drafts'));
 
   File _file(SchemaId id) => File('${dir.path}/${id.account}_${id.name}.json');
 

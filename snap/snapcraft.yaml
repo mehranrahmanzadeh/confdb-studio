@@ -20,7 +20,15 @@ platforms:
 
 lint:
   ignore:
+    - classic:
+      - confdb_studio
+      - lib/libfile_selector_linux_plugin.so
+      - lib/libflutter_linux_gtk.so
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libffi.so.8.1.4
     - library:
+      - confdb_studio
+      - lib/libfile_selector_linux_plugin.so
+      - lib/libflutter_linux_gtk.so
       - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libcolordprivate.so.2.0.5
       - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libdconf.so.1.0.0
       - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libicuio.so.74.2
@@ -33,6 +41,9 @@ apps:
     command: confdb_studio
     environment:
       CONFDB_BACKEND: rest
+      CONFDB_STORE_PYTHON: $SNAP/usr/bin/python3.12
+      CONFDB_STORE_PYTHONPATH: $SNAP/usr/share/surl-venv/lib/python3.12/site-packages
+      CONFDB_STORE_HELPER: $SNAP/usr/share/confdb-studio/store_helper.py
 
 parts:
   confdb-studio:
@@ -42,3 +53,67 @@ parts:
     build-packages:
       - pkg-config
       - libgtk-3-dev
+
+  store-helper:
+    plugin: dump
+    source: tool
+    organize:
+      store_helper.py: usr/share/confdb-studio/store_helper.py
+    prime:
+      - usr/share/confdb-studio/store_helper.py
+
+  surl:
+    plugin: nil
+    source: https://github.com/canonical/surl.git
+    source-type: git
+    source-commit: 3e83328161f0d79ecdb15a6a0a3bcde8f5ab41cb
+    build-packages:
+      - patchelf
+      - python3
+      - python3-venv
+      - python3-pip
+      - git
+      - build-essential
+      - libffi-dev
+    override-build: |
+      set -eux
+      venv="$CRAFT_PART_INSTALL/usr/share/surl-venv"
+      python3 -m venv "$venv"
+      "$venv/bin/pip" install --upgrade pip
+      "$venv/bin/pip" install -r "$CRAFT_PART_SRC/requirements.txt"
+      "$venv/bin/pip" install "$CRAFT_PART_SRC"
+      test -f "$venv/bin/surl_cli.py"
+    override-prime: |
+      craftctl default
+
+      BASE="core24"
+
+      RPATH="/snap/$BASE/current/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR"
+      INTERP="/snap/$BASE/current/lib64/ld-linux-x86-64.so.2"
+      CPYTHON_ARCH="x86_64"
+
+      if [ $CRAFT_ARCH_BUILD_FOR = "arm64" ]; then
+        INTERP="/snap/$BASE/current/lib/ld-linux-aarch64.so.1"
+        CPYTHON_ARCH="aarch64"
+      fi
+
+      patchelf --force-rpath --set-rpath $RPATH $CRAFT_PRIME/usr/bin/python3.12
+      patchelf --set-interpreter $INTERP $CRAFT_PRIME/usr/bin/python3.12
+
+      for file in $CRAFT_PRIME/usr/lib/python3.12/lib-dynload/*; do
+          patchelf --force-rpath --set-rpath "\$ORIGIN/lib:$RPATH" $file;
+      done
+
+      patchelf --force-rpath --set-rpath "\$ORIGIN/lib:\$ORIGIN/../../$CRAFT_ARCH_TRIPLET_BUILD_FOR:$RPATH" \
+                                          $CRAFT_PRIME/usr/lib/python3.12/lib-dynload/_ctypes.cpython-312-$CPYTHON_ARCH-linux-gnu.so
+
+      for file in $(find $CRAFT_PRIME/usr/share/surl-venv/lib/python3.12/site-packages/ -name *.so); do
+          patchelf --force-rpath --set-rpath $RPATH $file
+      done
+    stage-packages:
+      - python3.12-minimal
+      - libpython3.12-minimal
+      - libpython3.12-stdlib
+      - ca-certificates
+      - libffi8
+      - libssl3

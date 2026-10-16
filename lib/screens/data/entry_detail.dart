@@ -7,11 +7,9 @@ import '../../domain/analysis.dart';
 import '../../domain/paths.dart';
 import '../../domain/values.dart';
 import '../../shell/screen_host.dart';
-import '../../state/app_controller.dart';
 import '../../state/app_scope.dart';
 import '../../state/staging_controller.dart';
 import '../../theme/app_theme.dart';
-import '../../util/format.dart';
 import '../../widgets/app_icons.dart';
 import '../../widgets/chips.dart';
 import '../../widgets/cli_disclosure.dart';
@@ -184,27 +182,6 @@ class _EntryDetailState extends State<EntryDetail> {
         .any((p) => p.role == PlugRole.custodian && p.view == ref && p.state.isConnected);
     final node = e.node;
 
-    // Last successful change and, if newer, a failed attempt touching this path.
-    final related = widget.ctx.changes
-        .where((ch) => ch.view?.schemaId == ref.schemaId && ch.values.any((v) => v.storagePath == e.rule.storage))
-        .toList();
-    final lastDone = related.where((ch) => ch.status == ChangeStatus.done).firstOrNull;
-    final lastFailed = related.where((ch) => ch.status == ChangeStatus.error).firstOrNull;
-    final showAttempt = lastFailed != null && (lastDone == null || lastFailed.spawnTime.isAfter(lastDone.spawnTime));
-
-    Widget changeLink(ConfdbChange ch) => InkWell(
-      mouseCursor: WidgetStateMouseCursor.clickable,
-      onTap: () => context.app.go(ChangeRoute(ch.id)),
-      child: Text(
-        '#${ch.id}',
-        style: context.text.bodyMedium?.mono.copyWith(
-          color: c.secondary,
-          decoration: TextDecoration.underline,
-          decorationColor: c.secondary,
-        ),
-      ),
-    );
-
     final rows = <(String, Widget)>[
       ('Storage path', MonoText(e.rule.storage)),
       if (_isCollection)
@@ -248,23 +225,6 @@ class _EntryDetailState extends State<EntryDetail> {
         ('Constraints', CodeText('One of ${node.choices.map((x) => '`$x`').join(', ')}'))
       else if (node?.constraintSummary != null)
         ('Constraints', Text(node!.constraintSummary!)),
-      if (lastDone != null)
-        (
-          'Last changed',
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [changeLink(lastDone), Text(' · ${dayAndTime(lastDone.spawnTime)}')],
-          ),
-        ),
-      if (showAttempt)
-        (
-          'Last attempt',
-          Wrap(
-            spacing: 6,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [changeLink(lastFailed), const StatusBadge.error('Error')],
-          ),
-        ),
     ];
 
     final values = staged != null && !_touched ? staged.value : _tryParse();
@@ -433,11 +393,8 @@ class _EntryDetailState extends State<EntryDetail> {
             kind: MessageKind.error,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             title: 'Rejected by ${staged!.rejectedBy ?? 'the custodian'}',
-            body: CodeText('In change #${staged.fromChange}: `${staged.rejection}`'),
-            actions: [
-              OnContainerButton(label: 'Retry', icon: AppIcons.retry, outlined: false, onPressed: () => openReview(context)),
-              OnContainerButton(label: 'View change', outlined: false, onPressed: () => context.app.go(ChangeRoute(staged.fromChange!))),
-            ],
+            body: CodeText('`${staged.rejection}`'),
+            actions: [OnContainerButton(label: 'Retry', icon: AppIcons.retry, outlined: false, onPressed: () => openReview(context))],
           ),
         ]);
       }

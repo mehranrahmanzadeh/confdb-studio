@@ -11,16 +11,17 @@ import '../../widgets/common.dart';
 import '../../widgets/fields.dart';
 import '../../widgets/loader.dart';
 import '../../widgets/status_badge.dart';
+import '../../widgets/code_text.dart';
+import '../access/custodian_guide.dart';
 import 'entry_detail.dart';
 import 'view_values.dart';
 import '../../state/account_names.dart';
 
 /// Everything the explorer needs besides the values themselves.
 class ExplorerContext {
-  const ExplorerContext(this.schemas, this.snaps, this.changes);
+  const ExplorerContext(this.schemas, this.snaps);
   final List<ConfdbSchema> schemas;
   final List<SnapInfo> snaps;
-  final List<ConfdbChange> changes;
 
   List<ViewRef> get views => [
     for (final s in schemas)
@@ -41,8 +42,8 @@ class ExplorerContext {
 }
 
 Future<ExplorerContext> _loadContext(ConfdbRepository repo) async {
-  final r = await Future.wait([repo.listSchemas(), repo.listSnaps(), repo.listChanges()]);
-  return ExplorerContext(r[0] as List<ConfdbSchema>, r[1] as List<SnapInfo>, r[2] as List<ConfdbChange>);
+  final r = await Future.wait([repo.listSchemas(), repo.listSnaps()]);
+  return ExplorerContext(r[0] as List<ConfdbSchema>, r[1] as List<SnapInfo>);
 }
 
 /// 7.6 Data explorer: browse and edit values through a view.
@@ -70,7 +71,7 @@ class _Explorer extends StatefulWidget {
   final DataRoute route;
   final ExplorerContext ctx;
 
-  /// Re-reads schemas, snaps and changes (keeping what's on screen meanwhile).
+  /// Re-reads schemas and snaps (keeping what's on screen meanwhile).
   final VoidCallback onReloadContext;
 
   @override
@@ -132,7 +133,7 @@ class _ExplorerState extends State<_Explorer> {
           icon: AppIcons.data,
           title: 'No views on this device',
           body: const Text('Acknowledge a schema to read and write values through its views.'),
-          actions: [SecondaryButton(label: 'Go to schemas', onPressed: () => app.go(const SchemasRoute()))],
+          actions: [SecondaryButton(label: 'Go to schemas', onPressed: () => app.go(const OverviewRoute()))],
         ),
       );
     } else {
@@ -143,7 +144,9 @@ class _ExplorerState extends State<_Explorer> {
             _split(compact, const TableSkeleton(message: 'Reading values…', columns: [3, 2, 5, 2], rows: [0.5, 0.7, 0.4, 0.6]), null),
         error: (context, e, retry) => _split(
           compact,
-          LoadErrorMessage(title: 'Couldn’t read ${view.path}', error: e, onRetry: retry, command: 'snap get ${view.path}'),
+          isNoCustodian(e)
+              ? _NoCustodian(view: view, error: e, ctx: widget.ctx, onRetry: retry)
+              : LoadErrorMessage(title: 'Couldn’t read ${view.path}', error: e, onRetry: retry, command: 'snap get ${view.path}'),
           null,
         ),
         builder: (context, snap, reload) {
@@ -318,6 +321,60 @@ class _Toolbar extends StatelessWidget {
           SizedBox(width: 400, child: selector),
           SizedBox(width: 420, child: searchField),
           reload,
+        ],
+      ),
+    );
+  }
+}
+
+/// snapd refuses to read a view while none of its custodian snaps is
+/// connected (`cannot read confdb view …: no custodian snap connected`).
+bool isNoCustodian(Object e) => '$e'.contains('no custodian snap connected');
+
+/// Not a failure of the app or snapd: the view needs a custodian connected
+/// before anything can be read through it.
+class _NoCustodian extends StatelessWidget {
+  const _NoCustodian({required this.view, required this.error, required this.ctx, required this.onRetry});
+  final ViewRef view;
+  final Object error;
+  final ExplorerContext ctx;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final schema = ctx.schema(view.schemaId);
+    return InlineMessage(
+      kind: MessageKind.warning,
+      large: true,
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+      title: 'Warning · No custodian snap connected',
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CodeText(
+            context.aliased(
+              'snapd reads `${view.path}` only while a custodian snap of it is connected. '
+              'Connect one, then retry.',
+            ),
+          ),
+          const SizedBox(height: 8),
+          CodeText(context.aliased('$error'), style: context.text.bodySmall?.mono),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              OnContainerButton(label: 'Retry', icon: AppIcons.retry, onPressed: onRetry),
+              if (schema != null && !schema.builtIn)
+                OnContainerButton(
+                  label: 'How to connect a custodian',
+                  icon: AppIcons.help,
+                  outlined: false,
+                  onPressed: () => showCustodianGuide(context, schema: schema, snaps: ctx.snaps),
+                ),
+            ],
+          ),
         ],
       ),
     );

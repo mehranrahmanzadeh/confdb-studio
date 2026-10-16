@@ -43,7 +43,7 @@ void main() {
 
   testWidgets('a draft can be discarded from the schemas list', (tester) async {
     final r = repo();
-    await open(tester, r, const SchemasRoute());
+    await open(tester, r, const OverviewRoute());
     await tester.tap(find.byTooltip('Actions for acme/network'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Discard draft'));

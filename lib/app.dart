@@ -3,11 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'data/confdb_repository.dart';
+import 'data/models.dart';
 import 'shell/app_shell.dart';
 import 'state/account_names.dart';
 import 'state/app_controller.dart';
 import 'state/app_scope.dart';
 import 'state/staging_controller.dart';
+import 'state/store_controller.dart';
 import 'theme/app_theme.dart';
 
 class ConfdbStudioApp extends StatefulWidget {
@@ -26,6 +28,7 @@ class _ConfdbStudioAppState extends State<ConfdbStudioApp> {
   late final _app = AppController(initial: widget.initialRoute);
   final _staging = StagingController();
   late final _accounts = AccountNames(widget.repository);
+  late final _store = StoreController(widget.repository);
   final _theme = buildAppTheme();
   StreamSubscription<void>? _sub;
   bool _firstStatus = true;
@@ -40,6 +43,7 @@ class _ConfdbStudioAppState extends State<ConfdbStudioApp> {
     _refreshStatus();
     _resolveAccounts();
     _app.refreshStoreAccount(widget.repository);
+    _store.refresh().then((_) => _accounts.resolve([for (final s in _store.schemas ?? const <ConfdbSchema>[]) s.id.account]));
     widget.repository.developerAccount().then((a) {
       if (a != null) {
         _app.setAccount(a);
@@ -81,6 +85,7 @@ class _ConfdbStudioAppState extends State<ConfdbStudioApp> {
   void dispose() {
     _sub?.cancel();
     _accounts.dispose();
+    _store.dispose();
     _app.dispose();
     _staging.dispose();
     super.dispose();
@@ -92,6 +97,7 @@ class _ConfdbStudioAppState extends State<ConfdbStudioApp> {
       repository: widget.repository,
       app: _app,
       staging: _staging,
+      store: _store,
       child: AccountNamesScope(
         names: _accounts,
         child: MaterialApp(
