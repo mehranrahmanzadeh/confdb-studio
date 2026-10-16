@@ -222,6 +222,19 @@ void main() {
       expect(find.text('In Store · rev 1'), findsOneWidget);
     });
 
+    testWidgets('clicking “Not in Store” offers to push', (tester) async {
+      final repo = await boot(tester);
+      final badge = find.ancestor(of: find.text('Not in Store'), matching: find.byType(InkWell));
+      expect(tester.widget<InkWell>(badge).mouseCursor, WidgetStateMouseCursor.clickable);
+      await tester.tap(find.text('Not in Store'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('can’t be removed'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Push to Store'));
+      await tester.pumpAndSettle();
+      expect((await settle(tester, repo.listStoreSchemas())).any((s) => s.id == telemetryId), isTrue);
+      expect(find.text('In Store · rev 1'), findsOneWidget);
+    });
+
     testWidgets('opens a Store revision as a draft', (tester) async {
       final repo = await boot(tester);
       await action(tester, 'fleet', 'Open Store revision as draft');

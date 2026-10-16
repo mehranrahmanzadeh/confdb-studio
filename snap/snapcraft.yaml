@@ -20,7 +20,15 @@ platforms:
 
 lint:
   ignore:
+    - classic:
+      - confdb_studio
+      - lib/libfile_selector_linux_plugin.so
+      - lib/libflutter_linux_gtk.so
+      - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libffi.so.8.1.4
     - library:
+      - confdb_studio
+      - lib/libfile_selector_linux_plugin.so
+      - lib/libflutter_linux_gtk.so
       - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libcolordprivate.so.2.0.5
       - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libdconf.so.1.0.0
       - usr/lib/$CRAFT_ARCH_TRIPLET_BUILD_FOR/libicuio.so.74.2

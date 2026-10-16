@@ -6,6 +6,7 @@ import '../../domain/analysis.dart';
 import '../../state/app_controller.dart';
 import '../../state/app_scope.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/confdb_theme.dart';
 import '../../util/format.dart';
 import '../../widgets/app_icons.dart';
 import '../../widgets/common.dart';
@@ -458,7 +459,10 @@ class _SchemaTable extends StatelessWidget {
               const StatusBadge.info('Local draft', icon: AppIcons.edit),
           ],
         ),
-        Align(alignment: Alignment.centerLeft, child: _storeCell(context, s, device, inStore, sync)),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: _storeCell(context, s, device, inStore, sync, onPush: canPush ? () => _push(context, device!) : null),
+        ),
         Align(alignment: Alignment.centerLeft, child: lintBadge(lintSchema(linted))),
         if (changes == 0)
           const SizedBox.shrink()
@@ -488,7 +492,15 @@ class _SchemaTable extends StatelessWidget {
   );
 
   /// The Snap Store column: how this device's revision compares with the Store's.
-  Widget _storeCell(BuildContext context, ConfdbSchema s, ConfdbSchema? device, ConfdbSchema? inStore, StoreSync sync) {
+  /// [onPush] makes "Not in Store" a button that offers to push.
+  Widget _storeCell(
+    BuildContext context,
+    ConfdbSchema s,
+    ConfdbSchema? device,
+    ConfdbSchema? inStore,
+    StoreSync sync, {
+    VoidCallback? onPush,
+  }) {
     final c = context.colors;
     final muted = context.text.bodyMedium?.copyWith(color: c.onSurfaceVariant);
     Widget tip(String message, Widget child) => Tooltip(message: message, child: child);
@@ -514,10 +526,24 @@ class _SchemaTable extends StatelessWidget {
         'The Snap Store has the same revision as this device.',
         StatusBadge.success(theirs == null ? 'In Store' : 'In Store · rev $theirs', icon: AppIcons.storeSynced),
       ),
-      StoreSync.notInStore => tip(
-        'Signed on this device only. Push it to register it in the Snap Store.',
-        const StatusBadge.neutral('Not in Store', icon: AppIcons.storeOff),
-      ),
+      StoreSync.notInStore =>
+        onPush == null
+            ? tip(
+                'Signed on this device only. Push it to register it in the Snap Store.',
+                const StatusBadge.neutral('Not in Store', icon: AppIcons.storeOff),
+              )
+            : tip(
+                'Signed on this device only. Click to push it to the Snap Store.',
+                Semantics(
+                  button: true,
+                  child: InkWell(
+                    onTap: onPush,
+                    mouseCursor: WidgetStateMouseCursor.clickable,
+                    borderRadius: BorderRadius.circular(ConfdbRadii.chip),
+                    child: const StatusBadge.neutral('Not in Store', icon: AppIcons.storeOff),
+                  ),
+                ),
+              ),
       StoreSync.storeOnly => tip(
         'Registered in the Snap Store, not installed on this device.',
         const StatusBadge.info('Only in Store', icon: AppIcons.store),
