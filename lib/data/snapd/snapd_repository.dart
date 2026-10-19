@@ -605,7 +605,10 @@ class SnapdRepository implements ConfdbRepository {
     try {
       final info = await store.accountInfo();
       final keys = info['account_keys'] as List? ?? const [];
-      return {for (final k in keys.whereType<Map>()) if (k['public-key-sha3-384'] case final String sha) sha};
+      return {
+        for (final k in keys.whereType<Map>())
+          if (k['public-key-sha3-384'] case final String sha) sha,
+      };
     } on ConfdbException catch (e) {
       if (e.kind == ConfdbErrorKind.signedOut || e.kind == ConfdbErrorKind.offline) return null;
       rethrow;
@@ -692,7 +695,8 @@ class SnapdRepository implements ConfdbRepository {
     // same channel `snap sign`/`snap create-key` already use; it never passes
     // through this app.
     const fixedCreationSeconds = 1451606400; // matches asserts.v1FixedTimestamp
-    final params = '\nKey-Type: RSA\nKey-Length: 4096\nName-Real: $name\nCreation-Date: seconds=$fixedCreationSeconds\nPreferences: SHA512\n';
+    final params =
+        '\nKey-Type: RSA\nKey-Length: 4096\nName-Real: $name\nCreation-Date: seconds=$fixedCreationSeconds\nPreferences: SHA512\n';
 
     final proc = await Process.start(gpgCommand, ['--homedir', homedir, '-q', '--no-auto-check-trustdb', '--batch', '--gen-key']);
     proc.stdin.write(params);
@@ -716,17 +720,11 @@ class SnapdRepository implements ConfdbRepository {
   Future<void> registerKey(SigningKey key) async {
     final account = await developerAccount();
     if (account == null) {
-      throw const ConfdbException(
-        'Log in to snapcraft first, so the key can be registered to your account.',
-        command: 'snapcraft login',
-      );
+      throw const ConfdbException('Log in to snapcraft first, so the key can be registered to your account.', command: 'snapcraft login');
     }
     final r = await Process.run(snapCommand, ['export-key', '--account=$account', key.name]);
     if (r.exitCode != 0) {
-      throw ConfdbException(
-        '`snap export-key` failed: ${r.stderr}'.trim(),
-        command: 'snap export-key --account=$account ${key.name}',
-      );
+      throw ConfdbException('`snap export-key` failed: ${r.stderr}'.trim(), command: 'snap export-key --account=$account ${key.name}');
     }
     await store.registerSigningKey(r.stdout as String);
     _notify();

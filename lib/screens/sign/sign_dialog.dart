@@ -22,7 +22,8 @@ Future<void> showSignDialog(BuildContext context, ConfdbSchema draft, ConfdbSche
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (context) => _SignDialog(draft: draft, base: base, signKey: key, keyRegistered: keyRegistered, scope: scope, messenger: messenger),
+    builder: (context) =>
+        _SignDialog(draft: draft, base: base, signKey: key, keyRegistered: keyRegistered, scope: scope, messenger: messenger),
   );
 }
 
@@ -276,6 +277,7 @@ class _SignDialogState extends State<_SignDialog> {
     );
   }
 }
+
 class _DiffList extends StatelessWidget {
   const _DiffList({required this.lines});
   final List<SchemaDiffLine> lines;

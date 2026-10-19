@@ -32,8 +32,7 @@ Future<T> settle<T>(WidgetTester tester, Future<T> future) async {
 class FakeStoreAuthClient implements StoreAuthClient {
   FakeStoreAuthClient({this.onLogin, this.onRestore, this.onRequest});
 
-  final Future<StoreAuthSession> Function({required StoreEnv env, required String email, required String password, String? otp})?
-  onLogin;
+  final Future<StoreAuthSession> Function({required StoreEnv env, required String email, required String password, String? otp})? onLogin;
   final Future<StoreAuthSession> Function({required StoreEnv env, required String credentialsJson})? onRestore;
   final Future<StoreApiResponse> Function(String method, String path, {String? body, String? contentType})? onRequest;
 
@@ -148,8 +147,7 @@ void main() {
 
     test('sends a signed assertion as x.ubuntu.assertion', () async {
       final auth = FakeStoreAuthClient(
-        onRequest: (method, path, {body, contentType}) async =>
-            StoreApiResponse(status: 201, body: jsonEncode({'assertions': <Object>[]})),
+        onRequest: (method, path, {body, contentType}) async => StoreApiResponse(status: 201, body: jsonEncode({'assertions': <Object>[]})),
       );
       await client(auth: auth).register('type: confdb-schema\n\nsig');
       expect(auth.calls.single, {
@@ -180,8 +178,7 @@ void main() {
 
     test('a 401 means the login needs renewing', () async {
       final auth = FakeStoreAuthClient(
-        onRequest: (method, path, {body, contentType}) async =>
-            throw const ConfdbException('expired', kind: ConfdbErrorKind.signedOut),
+        onRequest: (method, path, {body, contentType}) async => throw const ConfdbException('expired', kind: ConfdbErrorKind.signedOut),
         onRestore: ({required env, required credentialsJson}) async =>
             throw const ConfdbException('expired', kind: ConfdbErrorKind.signedOut),
       );

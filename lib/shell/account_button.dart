@@ -209,4 +209,3 @@ class _StoreSection extends StatelessWidget {
     );
   }
 }
-

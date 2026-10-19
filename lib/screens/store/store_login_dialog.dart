@@ -73,11 +73,7 @@ class _StoreLoginDialogState extends State<_StoreLoginDialog> {
       _error = null;
     });
     try {
-      await widget.store.login(
-        email: _email.text.trim(),
-        password: _password.text,
-        otp: _needsOtp ? _otp.text.trim() : null,
-      );
+      await widget.store.login(email: _email.text.trim(), password: _password.text, otp: _needsOtp ? _otp.text.trim() : null);
       if (mounted) Navigator.of(context).pop(true);
     } on ConfdbException catch (e) {
       if (!mounted) return;

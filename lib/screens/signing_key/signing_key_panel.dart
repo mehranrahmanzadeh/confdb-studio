@@ -63,7 +63,10 @@ class _SigningKeyPanelState extends State<SigningKeyPanel> {
     final messenger = ScaffoldMessenger.of(context);
     final account = widget.draft.id.account;
     final suggested = '${context.accounts?.alias(account) ?? account}-release';
-    final name = await showDialog<String>(context: context, builder: (_) => _CreateKeyDialog(suggestedName: suggested));
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => _CreateKeyDialog(suggestedName: suggested),
+    );
     if (name == null || !mounted) return;
     setState(() => _creatingKey = true);
     try {
@@ -248,11 +251,7 @@ class _KeyRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
-                Icon(
-                  selected ? Icons.check_circle : Icons.circle_outlined,
-                  size: 22,
-                  color: selected ? c.primary : c.outline,
-                ),
+                Icon(selected ? Icons.check_circle : Icons.circle_outlined, size: 22, color: selected ? c.primary : c.outline),
                 const SizedBox(width: 8),
                 Icon(AppIcons.key, size: 20, color: c.onSurfaceVariant),
                 const SizedBox(width: 12),
@@ -317,20 +316,12 @@ class _NoKeys extends StatelessWidget {
             'Schemas are signed with a key registered to the account `$account`. '
             'Create one, register it to the account, then refresh.',
           ),
-          if (loggedOut) ...[
-            const SizedBox(height: 8),
-            Text('Sign in to the Snap Store first to register a key.'),
-          ],
+          if (loggedOut) ...[const SizedBox(height: 8), Text('Sign in to the Snap Store first to register a key.')],
         ],
       ),
       actions: [
-        if (loggedOut)
-          OnContainerButton(label: 'Sign in', icon: AppIcons.signIn, onPressed: () => showStoreLoginDialog(context)),
-        OnContainerButton(
-          label: creating ? 'Creating…' : 'Create key',
-          icon: AppIcons.add,
-          onPressed: creating ? null : onCreateKey,
-        ),
+        if (loggedOut) OnContainerButton(label: 'Sign in', icon: AppIcons.signIn, onPressed: () => showStoreLoginDialog(context)),
+        OnContainerButton(label: creating ? 'Creating…' : 'Create key', icon: AppIcons.add, onPressed: creating ? null : onCreateKey),
         OnContainerButton(label: 'Refresh keys', icon: AppIcons.retry, onPressed: onRefresh),
       ],
     );

@@ -633,7 +633,6 @@ class _Header extends StatelessWidget {
   }
 }
 
-
 /// The schema's one-line `summary` header, edited in place.
 class _SummaryField extends StatefulWidget {
   const _SummaryField({required this.summary, required this.onChanged});

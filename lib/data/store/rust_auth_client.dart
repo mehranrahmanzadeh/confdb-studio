@@ -14,66 +14,59 @@ import 'store_auth_client.dart';
 // must mirror exactly).
 // ===========================================================================
 
-typedef _RuntimeInitNative =
-    ffi.Pointer<ffi.Void> Function(
-      ffi.Pointer<pkg_ffi.Utf8> storeUrl,
-      ffi.Pointer<pkg_ffi.Utf8> loginUrl,
-      ffi.Pointer<pkg_ffi.Utf8> permissions,
-      ffi.Pointer<pkg_ffi.Utf8> storageKey,
-      ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
-    );
-typedef _RuntimeInitDart =
-    ffi.Pointer<ffi.Void> Function(
-      ffi.Pointer<pkg_ffi.Utf8> storeUrl,
-      ffi.Pointer<pkg_ffi.Utf8> loginUrl,
-      ffi.Pointer<pkg_ffi.Utf8> permissions,
-      ffi.Pointer<pkg_ffi.Utf8> storageKey,
-      ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
-    );
+typedef _RuntimeInitNative = ffi.Pointer<ffi.Void> Function(
+  ffi.Pointer<pkg_ffi.Utf8> storeUrl,
+  ffi.Pointer<pkg_ffi.Utf8> loginUrl,
+  ffi.Pointer<pkg_ffi.Utf8> permissions,
+  ffi.Pointer<pkg_ffi.Utf8> storageKey,
+  ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
+);
+typedef _RuntimeInitDart = ffi.Pointer<ffi.Void> Function(
+  ffi.Pointer<pkg_ffi.Utf8> storeUrl,
+  ffi.Pointer<pkg_ffi.Utf8> loginUrl,
+  ffi.Pointer<pkg_ffi.Utf8> permissions,
+  ffi.Pointer<pkg_ffi.Utf8> storageKey,
+  ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
+);
 
 typedef _RuntimeGetNative = ffi.Pointer<ffi.Void> Function();
 typedef _RuntimeGetDart = ffi.Pointer<ffi.Void> Function();
 
-typedef _HandleOutErrToBoolNative =
-    ffi.Bool Function(ffi.Pointer<ffi.Void> handle, ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr);
-typedef _HandleOutErrToBoolDart =
-    bool Function(ffi.Pointer<ffi.Void> handle, ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr);
+typedef _HandleOutErrToBoolNative = ffi.Bool Function(ffi.Pointer<ffi.Void> handle, ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr);
+typedef _HandleOutErrToBoolDart = bool Function(ffi.Pointer<ffi.Void> handle, ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr);
 
-typedef _SubmitCredentialsNative =
-    ffi.Bool Function(
-      ffi.Pointer<ffi.Void> handle,
-      ffi.Pointer<pkg_ffi.Utf8> email,
-      ffi.Pointer<pkg_ffi.Utf8> password,
-      ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
-    );
-typedef _SubmitCredentialsDart =
-    bool Function(
-      ffi.Pointer<ffi.Void> handle,
-      ffi.Pointer<pkg_ffi.Utf8> email,
-      ffi.Pointer<pkg_ffi.Utf8> password,
-      ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
-    );
+typedef _SubmitCredentialsNative = ffi.Bool Function(
+  ffi.Pointer<ffi.Void> handle,
+  ffi.Pointer<pkg_ffi.Utf8> email,
+  ffi.Pointer<pkg_ffi.Utf8> password,
+  ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
+);
+typedef _SubmitCredentialsDart = bool Function(
+  ffi.Pointer<ffi.Void> handle,
+  ffi.Pointer<pkg_ffi.Utf8> email,
+  ffi.Pointer<pkg_ffi.Utf8> password,
+  ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
+);
 
-typedef _OneArgToBoolNative =
-    ffi.Bool Function(
-      ffi.Pointer<ffi.Void> handle,
-      ffi.Pointer<pkg_ffi.Utf8> arg,
-      ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
-    );
-typedef _OneArgToBoolDart =
-    bool Function(
-      ffi.Pointer<ffi.Void> handle,
-      ffi.Pointer<pkg_ffi.Utf8> arg,
-      ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
-    );
+typedef _OneArgToBoolNative = ffi.Bool Function(
+  ffi.Pointer<ffi.Void> handle,
+  ffi.Pointer<pkg_ffi.Utf8> arg,
+  ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
+);
+typedef _OneArgToBoolDart = bool Function(
+  ffi.Pointer<ffi.Void> handle,
+  ffi.Pointer<pkg_ffi.Utf8> arg,
+  ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
+);
 
-typedef _HandleOutErrToStringNative =
-    ffi.Pointer<pkg_ffi.Utf8> Function(ffi.Pointer<ffi.Void> handle, ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr);
-typedef _HandleOutErrToStringDart =
-    ffi.Pointer<pkg_ffi.Utf8> Function(
-      ffi.Pointer<ffi.Void> handle,
-      ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
-    );
+typedef _HandleOutErrToStringNative = ffi.Pointer<pkg_ffi.Utf8> Function(
+  ffi.Pointer<ffi.Void> handle,
+  ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
+);
+typedef _HandleOutErrToStringDart = ffi.Pointer<pkg_ffi.Utf8> Function(
+  ffi.Pointer<ffi.Void> handle,
+  ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
+);
 
 typedef _DrainEventsNative = ffi.Pointer<pkg_ffi.Utf8> Function(ffi.Pointer<ffi.Void> handle);
 typedef _DrainEventsDart = ffi.Pointer<pkg_ffi.Utf8> Function(ffi.Pointer<ffi.Void> handle);
@@ -81,24 +74,22 @@ typedef _DrainEventsDart = ffi.Pointer<pkg_ffi.Utf8> Function(ffi.Pointer<ffi.Vo
 typedef _PendingEventsNative = ffi.Uint32 Function(ffi.Pointer<ffi.Void> handle);
 typedef _PendingEventsDart = int Function(ffi.Pointer<ffi.Void> handle);
 
-typedef _RequestNative =
-    ffi.Pointer<pkg_ffi.Utf8> Function(
-      ffi.Pointer<ffi.Void> handle,
-      ffi.Pointer<pkg_ffi.Utf8> method,
-      ffi.Pointer<pkg_ffi.Utf8> path,
-      ffi.Pointer<pkg_ffi.Utf8> body,
-      ffi.Pointer<pkg_ffi.Utf8> contentType,
-      ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
-    );
-typedef _RequestDart =
-    ffi.Pointer<pkg_ffi.Utf8> Function(
-      ffi.Pointer<ffi.Void> handle,
-      ffi.Pointer<pkg_ffi.Utf8> method,
-      ffi.Pointer<pkg_ffi.Utf8> path,
-      ffi.Pointer<pkg_ffi.Utf8> body,
-      ffi.Pointer<pkg_ffi.Utf8> contentType,
-      ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
-    );
+typedef _RequestNative = ffi.Pointer<pkg_ffi.Utf8> Function(
+  ffi.Pointer<ffi.Void> handle,
+  ffi.Pointer<pkg_ffi.Utf8> method,
+  ffi.Pointer<pkg_ffi.Utf8> path,
+  ffi.Pointer<pkg_ffi.Utf8> body,
+  ffi.Pointer<pkg_ffi.Utf8> contentType,
+  ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
+);
+typedef _RequestDart = ffi.Pointer<pkg_ffi.Utf8> Function(
+  ffi.Pointer<ffi.Void> handle,
+  ffi.Pointer<pkg_ffi.Utf8> method,
+  ffi.Pointer<pkg_ffi.Utf8> path,
+  ffi.Pointer<pkg_ffi.Utf8> body,
+  ffi.Pointer<pkg_ffi.Utf8> contentType,
+  ffi.Pointer<ffi.Pointer<pkg_ffi.Utf8>> outErr,
+);
 
 typedef _FreeStringNative = ffi.Void Function(ffi.Pointer<pkg_ffi.Utf8> s);
 typedef _FreeStringDart = void Function(ffi.Pointer<pkg_ffi.Utf8> s);
@@ -112,9 +103,7 @@ class _Native {
     runtimeInit = _lib.lookupFunction<_RuntimeInitNative, _RuntimeInitDart>('auth_runtime_init');
     runtimeGet = _lib.lookupFunction<_RuntimeGetNative, _RuntimeGetDart>('auth_runtime_get');
     startLogin = _lib.lookupFunction<_HandleOutErrToBoolNative, _HandleOutErrToBoolDart>('auth_start_login');
-    submitCredentials = _lib.lookupFunction<_SubmitCredentialsNative, _SubmitCredentialsDart>(
-      'auth_submit_credentials',
-    );
+    submitCredentials = _lib.lookupFunction<_SubmitCredentialsNative, _SubmitCredentialsDart>('auth_submit_credentials');
     submit2faCode = _lib.lookupFunction<_OneArgToBoolNative, _OneArgToBoolDart>('auth_submit_2fa_code');
     restoreCredentials = _lib.lookupFunction<_OneArgToBoolNative, _OneArgToBoolDart>('auth_restore_credentials');
     logout = _lib.lookupFunction<_HandleOutErrToBoolNative, _HandleOutErrToBoolDart>('auth_logout');
@@ -160,11 +149,7 @@ String _dylibPath() {
   if (override != null && override.isNotEmpty) return override;
 
   final exeDir = File(Platform.resolvedExecutable).parent.path;
-  final candidates = [
-    '$exeDir/lib/libsnapstore_auth.so',
-    '$exeDir/libsnapstore_auth.so',
-    'linux/rust/libsnapstore_auth.so',
-  ];
+  final candidates = ['$exeDir/lib/libsnapstore_auth.so', '$exeDir/libsnapstore_auth.so', 'linux/rust/libsnapstore_auth.so'];
   for (final path in candidates) {
     if (File(path).existsSync()) return path;
   }
@@ -284,9 +269,7 @@ String _localErrorJson(Object error) => jsonEncode({'kind': 'unsupported', 'deta
           final hasBody = call.args[2] != null;
           final hasContentType = call.args[3] != null;
           final body = hasBody ? call.args[2]!.toNativeUtf8() : ffi.nullptr.cast<pkg_ffi.Utf8>();
-          final contentType = hasContentType
-              ? call.args[3]!.toNativeUtf8()
-              : ffi.nullptr.cast<pkg_ffi.Utf8>();
+          final contentType = hasContentType ? call.args[3]!.toNativeUtf8() : ffi.nullptr.cast<pkg_ffi.Utf8>();
           try {
             result = n.request(n.runtimeGet(), method, path, body, contentType, outErr);
           } finally {
@@ -451,12 +434,7 @@ class RustAuthClient implements StoreAuthClient {
   }
 
   @override
-  Future<StoreAuthSession> login({
-    required StoreEnv env,
-    required String email,
-    required String password,
-    String? otp,
-  }) async {
+  Future<StoreAuthSession> login({required StoreEnv env, required String email, required String password, String? otp}) async {
     _ensureInitialized(env);
 
     _Event event;
@@ -464,10 +442,7 @@ class RustAuthClient implements StoreAuthClient {
       // Resume the parked machine with just the code instead of restarting
       // the whole login (see [_awaitingOtp]'s doc comment).
       if (otp == null || otp.isEmpty) {
-        throw const ConfdbException(
-          'This account needs a two-factor authentication code.',
-          kind: ConfdbErrorKind.twoFactorRequired,
-        );
+        throw const ConfdbException('This account needs a two-factor authentication code.', kind: ConfdbErrorKind.twoFactorRequired);
       }
       event = await _submitOtp(otp);
     } else {
@@ -503,10 +478,7 @@ class RustAuthClient implements StoreAuthClient {
       if (event.type == 'needs_2fa_code') {
         if (otp == null || otp.isEmpty) {
           _awaitingOtp = true;
-          throw const ConfdbException(
-            'This account needs a two-factor authentication code.',
-            kind: ConfdbErrorKind.twoFactorRequired,
-          );
+          throw const ConfdbException('This account needs a two-factor authentication code.', kind: ConfdbErrorKind.twoFactorRequired);
         }
         event = await _submitOtp(otp);
       }
@@ -516,10 +488,7 @@ class RustAuthClient implements StoreAuthClient {
       // Wrong/expired code: the machine is parked at Needs2FACode again,
       // ready for another `submit2faCode` resume.
       _awaitingOtp = true;
-      throw const ConfdbException(
-        'That code wasn’t accepted. Try again.',
-        kind: ConfdbErrorKind.twoFactorRequired,
-      );
+      throw const ConfdbException('That code wasn’t accepted. Try again.', kind: ConfdbErrorKind.twoFactorRequired);
     }
     _awaitingOtp = false;
 
@@ -612,9 +581,7 @@ class RustAuthClient implements StoreAuthClient {
 
   @override
   Future<StoreApiResponse> request(String method, String path, {String? body, String? contentType}) async {
-    final result = await Isolate.run(
-      () => _runBlocking(_BlockingCall(_libPath, 'request', [method, path, body, contentType])),
-    );
+    final result = await Isolate.run(() => _runBlocking(_BlockingCall(_libPath, 'request', [method, path, body, contentType])));
     if (!result.ok) throw _errorFromJson(result.payload);
     final map = jsonDecode(result.payload) as Map;
     return StoreApiResponse(status: map['status'] as int? ?? 0, body: map['body'] as String? ?? '');

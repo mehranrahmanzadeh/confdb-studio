@@ -21,7 +21,10 @@ void main() {
       expect(tooltip, findsOneWidget);
       await tester.tap(tooltip);
       await tester.pumpAndSettle();
-      expect(find.text('Sign in to see the schemas registered to your account, push new revisions, and register signing keys.'), findsOneWidget);
+      expect(
+        find.text('Sign in to see the schemas registered to your account, push new revisions, and register signing keys.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('shows the username when signed in', (tester) async {

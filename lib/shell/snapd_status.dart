@@ -67,7 +67,10 @@ class SnapdStatus extends StatelessWidget {
                       state,
                       style: small?.copyWith(color: color, fontWeight: FontWeight.w600),
                     ),
-                  Text(st == null ? 'snapd' : 'snapd ${_displayVersion(st.snapdVersion)}', style: small?.copyWith(color: c.onSurfaceVariant)),
+                  Text(
+                    st == null ? 'snapd' : 'snapd ${_displayVersion(st.snapdVersion)}',
+                    style: small?.copyWith(color: c.onSurfaceVariant),
+                  ),
                 ],
               ),
             ),
