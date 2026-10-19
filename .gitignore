@@ -47,3 +47,8 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Rust auth backend (rust/) -- local build artifacts. Not wired into the
+# app yet (see rust/README.md); confdb-studio still uses tool/store_helper.py.
+rust/target/
+linux/rust/

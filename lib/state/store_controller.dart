@@ -4,7 +4,7 @@ import '../data/confdb_repository.dart';
 import '../data/models.dart';
 import '../domain/store_sync.dart';
 
-/// The app's Snap Store side: the surl login and the account's registered
+/// The app's Snap Store side: the login and the account's registered
 /// schemas, kept for the session so screens don't each ask the network.
 class StoreController extends ChangeNotifier {
   StoreController(this._repo);
@@ -84,6 +84,21 @@ class StoreController extends ChangeNotifier {
     notifyListeners();
     await reloadSchemas();
   }
+
+  /// Reflects a [ConfdbErrorKind.signedOut] error seen elsewhere (e.g. a 401
+  /// registering a signing key) without an extra round-trip to re-check:
+  /// the persisted macaroon is known stale, so the rail should offer "Log
+  /// in" right away.
+  void markSignedOut(String detail) {
+    _session = StoreSession.signedOut(detail: detail);
+    _schemas = null;
+    notifyListeners();
+  }
+
+  /// Abandons an in-progress [login] the caller isn't going to finish
+  /// (e.g. the dialog's Cancel button was pressed while waiting on a 2FA
+  /// code), so the next attempt starts clean.
+  Future<void> cancelLogin() => _repo.storeCancelLogin();
 
   Future<void> logout() async {
     await _repo.storeLogout();

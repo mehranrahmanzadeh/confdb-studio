@@ -60,6 +60,14 @@ All data goes through `ConfdbRepository` (`lib/data/confdb_repository.dart`):
 
   Signing uses `snap sign` and `snap keys` (keys live in the user's keyring).
 
+The Snap Store confdb-schemas API (`SnapStoreClient`,
+`lib/data/store/snap_store_client.dart`) talks Ubuntu One SSO login, 2FA, and
+macaroon-signed requests through a native Rust backend vendored under
+`rust/` (crate `snapstore-auth`, see `rust/README.md`), bound from Dart over
+`dart:ffi` (`lib/data/store/rust_auth_client.dart`). Build it with
+`scripts/build_rust_backend.sh` before `flutter run`/packaging; the saved
+login lives in `store.json` under the app data dir.
+
 ## Tests
 
 ```sh

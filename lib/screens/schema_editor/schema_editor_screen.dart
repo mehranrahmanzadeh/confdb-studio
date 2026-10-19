@@ -17,11 +17,11 @@ import '../../widgets/chips.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
 import '../../widgets/copyable_text.dart';
-import '../../widgets/domain_badges.dart';
 import '../../widgets/loader.dart';
 import '../../widgets/resize_handle.dart';
 import '../../widgets/status_badge.dart';
 import '../playground/playground_screen.dart';
+import '../signing_key/signing_key_panel.dart';
 import 'rules_table.dart';
 import 'storage_node_dialog.dart';
 import 'storage_pane.dart';
@@ -118,16 +118,26 @@ class _EditorState extends State<_Editor> {
   bool _json = false;
   Timer? _save;
 
+  /// Chosen on the signing-key step; carried along so it survives going
+  /// back and forth before the sign dialog opens.
+  SigningKey? _signingKey;
+  bool? _signingKeyRegistered;
+
   SchemaId get id => _draft.id;
 
   SchemaEditorRoute? get _editRoute => switch (widget.route) {
     final SchemaEditorRoute r => r,
-    PlaygroundRoute() => null,
+    PlaygroundRoute() || SigningKeyRoute() => null,
   };
 
   PlaygroundRoute? get _playRoute => switch (widget.route) {
     final PlaygroundRoute r => r,
-    SchemaEditorRoute() => null,
+    SchemaEditorRoute() || SigningKeyRoute() => null,
+  };
+
+  SigningKeyRoute? get _signRoute => switch (widget.route) {
+    final SigningKeyRoute r => r,
+    SchemaEditorRoute() || PlaygroundRoute() => null,
   };
 
   @override
@@ -345,6 +355,12 @@ class _EditorState extends State<_Editor> {
     if (_view != null) app.go(PlaygroundRoute(id, view: _view!));
   }
 
+  Future<void> _openSigningKey() async {
+    final app = context.app;
+    await _flush();
+    if (_view != null) app.go(SigningKeyRoute(id, view: _view!));
+  }
+
   /// Leaves the editor for the overview; the draft is kept.
   Future<void> _exit() async {
     final app = context.app;
@@ -353,6 +369,11 @@ class _EditorState extends State<_Editor> {
   }
 
   void _backToEditor() => context.app.go(SchemaEditorRoute(id, view: _view, focusStoragePath: _focusPath));
+
+  void _backToPlayground() {
+    final view = _view;
+    if (view != null) context.app.go(PlaygroundRoute(id, view: view));
+  }
 
   void _showInStorage(String path) => setState(() {
     _focusPath = path;
@@ -426,6 +447,23 @@ class _EditorState extends State<_Editor> {
     );
 
     final play = _playRoute;
+    final signStep = _signRoute;
+    final step = signStep != null
+        ? _EditorStep.signingKey
+        : play != null
+        ? _EditorStep.playground
+        : _EditorStep.schema;
+    final onNext = switch (step) {
+      _EditorStep.schema => _view == null ? null : _openPlayground,
+      _EditorStep.playground => _openSigningKey,
+      _EditorStep.signingKey => null,
+    };
+    final onBack = switch (step) {
+      _EditorStep.signingKey => _backToPlayground,
+      _EditorStep.playground || _EditorStep.schema => _backToEditor,
+    };
+    final canSign = _signingKey != null && _signingKeyRegistered != false;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -433,18 +471,31 @@ class _EditorState extends State<_Editor> {
           draft: _draft,
           base: widget.base,
           issues: issues,
-          playground: play != null,
+          step: step,
           onSummary: (v) => _update(_draft.copyWith(summary: v)),
-          onNext: _view == null ? null : _openPlayground,
-          onBack: _backToEditor,
+          onNext: onNext,
+          onBack: onBack,
           onExit: _exit,
+          canSign: canSign,
           onSign: () async {
+            final key = _signingKey;
+            if (key == null) return;
             await _flush();
-            if (context.mounted) openSignDialog(context, _draft, widget.base);
+            if (context.mounted) openSignDialog(context, _draft, widget.base, key, keyRegistered: _signingKeyRegistered);
           },
         ),
         Expanded(
-          child: play != null
+          child: signStep != null
+              ? SigningKeyPanel(
+                  key: ValueKey('signingKey:${signStep.view}'),
+                  draft: _draft,
+                  selected: _signingKey,
+                  onSelectionChanged: (key, registered) => setState(() {
+                    _signingKey = key;
+                    _signingKeyRegistered = registered;
+                  }),
+                )
+              : play != null
               ? PlaygroundPanel(
                   key: ValueKey('playground:${play.view}'),
                   draft: _draft,
@@ -473,37 +524,50 @@ class _EditorState extends State<_Editor> {
   }
 }
 
+/// Which of the editor's four steps the header is showing.
+enum _EditorStep { schema, playground, signingKey }
+
 class _Header extends StatelessWidget {
   const _Header({
     required this.draft,
     required this.base,
     required this.issues,
-    required this.playground,
+    required this.step,
     required this.onSummary,
     required this.onNext,
     required this.onBack,
     required this.onExit,
     required this.onSign,
+    required this.canSign,
   });
   final ConfdbSchema draft;
   final ConfdbSchema? base;
   final List<LintIssue> issues;
-
-  /// On the playground step: Back and Sign & acknowledge instead of Next.
-  final bool playground;
+  final _EditorStep step;
   final ValueChanged<String> onSummary;
+
+  /// Schema → Playground, and Playground → Signing key.
   final VoidCallback? onNext;
   final VoidCallback onBack;
 
   /// On the first step: back to the overview.
   final VoidCallback onExit;
+
+  /// On the signing-key step: opens the sign dialog.
   final VoidCallback onSign;
+
+  /// Whether a usable key is selected, so "Sign & acknowledge" can be enabled.
+  final bool canSign;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final errors = issues.where((i) => i.isError).length;
-    final current = playground ? _Stepper.playground : _Stepper.lint;
+    final current = switch (step) {
+      _EditorStep.schema => _Stepper.schema,
+      _EditorStep.playground => _Stepper.playground,
+      _EditorStep.signingKey => _Stepper.signingKey,
+    };
     final origin = base?.revision == null ? 'Local draft · new schema' : 'Local draft · based on signed rev ${base!.revision}';
 
     return Container(
@@ -539,21 +603,28 @@ class _Header extends StatelessWidget {
             runSpacing: 12,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              lintBadge(issues, prefix: 'Lint: '),
-              if (playground) ...[
-                TertiaryButton(label: 'Back', icon: AppIcons.back, onPressed: onBack),
-                // Playground results are only for trying things; lint errors still block signing.
-                PrimaryButton(label: 'Sign & acknowledge', icon: AppIcons.verified, onPressed: errors > 0 ? null : onSign),
-              ] else ...[
-                Tooltip(
+              switch (step) {
+                _EditorStep.schema => Tooltip(
                   message: 'Back to the overview. The draft is kept.',
                   child: TertiaryButton(label: 'Exit', icon: AppIcons.close, onPressed: onExit),
                 ),
-                Tooltip(
+                _EditorStep.playground || _EditorStep.signingKey => TertiaryButton(label: 'Back', icon: AppIcons.back, onPressed: onBack),
+              },
+              switch (step) {
+                _EditorStep.schema => Tooltip(
                   message: errors > 0 ? 'Fix the lint errors first' : 'Try the draft in the view playground, then sign',
                   child: PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
                 ),
-              ],
+                // Playground results are only for trying things; lint errors still block signing.
+                _EditorStep.playground => Tooltip(
+                  message: errors > 0 ? 'Fix the lint errors first' : 'Pick the key to sign with',
+                  child: PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
+                ),
+                _EditorStep.signingKey => Tooltip(
+                  message: canSign ? 'Open the sign and acknowledge dialog' : 'Select a registered key first',
+                  child: PrimaryButton(label: 'Sign & Acknowledge', icon: AppIcons.verified, onPressed: canSign ? onSign : null),
+                ),
+              },
             ],
           ),
         ],
@@ -624,16 +695,16 @@ class _SummaryFieldState extends State<_SummaryField> {
   }
 }
 
-/// Authoring progress: Storage › Views › Lint › Playground › Sign.
+/// Authoring progress: Schema › Playground › Signing key › Sign.
 class _Stepper extends StatelessWidget {
   const _Stepper({required this.current, required this.lintClean});
   final int current;
 
-  /// The editor sits on Lint; once it's clean the step shows a check.
+  /// The editor sits on Schema; once its lint is clean the step shows a check.
   final bool lintClean;
 
-  static const lint = 2, playground = 3;
-  static const _labels = ['Storage', 'Views', 'Lint', 'Playground', 'Sign'];
+  static const schema = 0, playground = 1, signingKey = 2;
+  static const _labels = ['Schema', 'Playground', 'Signing key', 'Sign'];
 
   @override
   Widget build(BuildContext context) {
@@ -647,7 +718,7 @@ class _Stepper extends StatelessWidget {
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
           for (var i = 0; i < _labels.length; i++) ...[
-            if (i == lint && !lintClean && i < current)
+            if (i == schema && !lintClean && i < current)
               // Reached the playground with lint errors: Lint isn't done.
               Container(
                 width: 24,
@@ -666,7 +737,7 @@ class _Stepper extends StatelessWidget {
                   color: i < current ? c.secondaryContainer : (i == current ? c.primary : Colors.transparent),
                   border: i > current ? Border.all(color: c.outline) : null,
                 ),
-                child: i < current || (i == lint && lintClean)
+                child: i < current || (i == schema && lintClean)
                     ? Icon(AppIcons.check, size: 16, color: i == current ? c.onPrimary : c.onSecondaryContainer)
                     : Text(
                         '${i + 1}',

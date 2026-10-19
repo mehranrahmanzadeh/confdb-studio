@@ -25,10 +25,6 @@ abstract interface class ConfdbRepository {
   /// The developer account schemas are created under, if known.
   Future<String?> developerAccount();
 
-  /// Whether snapcraft is logged in to a Snap Store developer account, which
-  /// registering signing keys needs (`snapcraft whoami`).
-  Future<StoreAccount> storeAccount();
-
   /// The account assertion for [accountId] (on the device, else from the
   /// store), or null if neither has it.
   Future<AccountInfo?> account(String accountId);
@@ -58,6 +54,28 @@ abstract interface class ConfdbRepository {
 
   Future<List<SigningKey>> signingKeys();
 
+  /// The signed-in account's registered account-keys, as `public-key-sha3-384`
+  /// digests — null when it can't be checked (signed out or offline), in
+  /// which case a key's registration should be treated as unverified rather
+  /// than refused.
+  Future<Set<String>?> registeredStoreKeyDigests();
+
+  /// Creates an RSA-4096 key named [name] directly with GPG, using snapd's
+  /// exact key spec (`asserts.GPGKeypairManager`'s key params: RSA-4096,
+  /// SHA512 digest preference, uid = [name]) in the same keyring `snap
+  /// create-key`/`snap sign` use. No passphrase passes through the app:
+  /// gpg-agent prompts for one through the system's pinentry, the same
+  /// channel `snap sign` already relies on. Validates the result against
+  /// those invariants before returning, failing loudly if gpg's defaults
+  /// ever drift from what `snap sign` requires.
+  Future<SigningKey> createSigningKey(String name);
+
+  /// Registers [key] to the signed-in account: exports its
+  /// account-key-request assertion from the host keyring (`snap export-key
+  /// --account=&lt;id&gt; &lt;name&gt;`) and uploads it through the Snap Store
+  /// backend.
+  Future<void> registerKey(SigningKey key);
+
   /// Signs [draft] as the next revision with [key] and acknowledges it. With
   /// [push], registers it in the Snap Store first, so a Store refusal leaves
   /// the device unchanged.
@@ -65,12 +83,16 @@ abstract interface class ConfdbRepository {
 
   // ------------------------------------------------------------ Snap Store
 
-  /// The app's Snap Store login (surl), checked with the Store.
+  /// The app's Snap Store login, checked with the Store.
   Future<StoreSession> storeSession();
 
   /// Signs in to the Snap Store with an Ubuntu One account and saves the
   /// login. Throws [ConfdbErrorKind.twoFactorRequired] when [otp] is needed.
   Future<StoreSession> storeLogin({required String email, required String password, String? otp, StoreEnv env = StoreEnv.production});
+
+  /// Abandons an in-progress [storeLogin] the caller isn't going to finish
+  /// (e.g. the login dialog was closed while waiting on a 2FA code).
+  Future<void> storeCancelLogin();
   Future<void> storeLogout();
 
   /// Schemas the signed-in account registered in the Store, latest revision

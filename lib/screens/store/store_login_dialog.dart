@@ -8,7 +8,7 @@ import '../../widgets/app_icons.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
 
-/// Signs in to the Snap Store (through surl) with an Ubuntu One account.
+/// Signs in to the Snap Store (through the vendored Rust backend) with an Ubuntu One account.
 /// Returns whether it signed in.
 Future<bool> showStoreLoginDialog(BuildContext context) async {
   final store = context.store;
@@ -33,7 +33,6 @@ class _StoreLoginDialogState extends State<_StoreLoginDialog> {
   final _password = TextEditingController();
   final _otp = TextEditingController();
   final _otpFocus = FocusNode();
-  StoreEnv _env = StoreEnv.production;
   bool _needsOtp = false;
   bool _busy = false;
   String? _error;
@@ -58,6 +57,15 @@ class _StoreLoginDialogState extends State<_StoreLoginDialog> {
 
   bool get _ready => !_busy && _email.text.trim().isNotEmpty && _password.text.isNotEmpty && (!_needsOtp || _otp.text.trim().isNotEmpty);
 
+  /// Tells the backend to abandon a flow parked waiting on a 2FA code
+  /// before closing, so the state machine is back in `Idle` and the next
+  /// sign-in attempt doesn't collide with this one (see
+  /// `RustAuthClient.cancelLogin`'s doc comment).
+  Future<void> _cancel() async {
+    await widget.store.cancelLogin();
+    if (mounted) Navigator.of(context).pop(false);
+  }
+
   Future<void> _submit() async {
     if (!_ready) return;
     setState(() {
@@ -65,7 +73,7 @@ class _StoreLoginDialogState extends State<_StoreLoginDialog> {
       _error = null;
     });
     try {
-      await widget.store.login(email: _email.text.trim(), password: _password.text, otp: _needsOtp ? _otp.text.trim() : null, env: _env);
+      await widget.store.login(email: _email.text.trim(), password: _password.text, otp: _needsOtp ? _otp.text.trim() : null);
       if (mounted) Navigator.of(context).pop(true);
     } on ConfdbException catch (e) {
       if (!mounted) return;
@@ -106,14 +114,6 @@ class _StoreLoginDialogState extends State<_StoreLoginDialog> {
                 'The login is saved on this computer, readable only by you, until you sign out.',
                 style: muted,
               ),
-              const SizedBox(height: 20),
-              SegmentedButton<StoreEnv>(
-                segments: [for (final e in StoreEnv.values) ButtonSegment(value: e, label: Text(e.label))],
-                selected: {_env},
-                onSelectionChanged: _busy || _needsOtp ? null : (s) => setState(() => _env = s.first),
-              ),
-              const SizedBox(height: 4),
-              Text(_env.host, style: context.text.bodySmall?.mono.copyWith(color: c.onSurfaceVariant)),
               const SizedBox(height: 16),
               TextField(
                 controller: _email,
@@ -170,7 +170,7 @@ class _StoreLoginDialogState extends State<_StoreLoginDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: _busy ? null : () => Navigator.of(context).pop(false), child: const Text('Cancel')),
+        TextButton(onPressed: _busy ? null : _cancel, child: const Text('Cancel')),
         PrimaryButton(label: _busy ? 'Signing in…' : 'Sign in', icon: AppIcons.signIn, busy: _busy, onPressed: _ready ? _submit : null),
       ],
     );

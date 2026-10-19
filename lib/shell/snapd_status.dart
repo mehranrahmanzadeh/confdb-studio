@@ -10,6 +10,10 @@ class SnapdStatus extends StatelessWidget {
   const SnapdStatus({super.key, required this.compact});
   final bool compact;
 
+  /// Just the snapd release, e.g. `2.63` from `2.63+24.04ubuntu1` — the
+  /// distro packaging suffix isn't meaningful here.
+  static String _displayVersion(String version) => version.split('+').first;
+
   @override
   Widget build(BuildContext context) {
     final app = context.app;
@@ -36,13 +40,13 @@ class SnapdStatus extends StatelessWidget {
             Icon(AppIcons.ok, size: 14, color: s.success),
             s.success,
             'confdb on',
-            'snapd ${st.snapdVersion} · confdb enabled',
+            'snapd ${_displayVersion(st.snapdVersion)} · confdb enabled',
           ),
           (final st?, _) => (
             Icon(AppIcons.warning, size: 14, color: s.warning),
             s.warning,
             'confdb off',
-            'snapd ${st.snapdVersion} · confdb not enabled',
+            'snapd ${_displayVersion(st.snapdVersion)} · confdb not enabled',
           ),
         };
         final small = context.text.labelSmall?.copyWith(fontSize: 10, height: 14 / 10, letterSpacing: 0.2);
@@ -63,7 +67,10 @@ class SnapdStatus extends StatelessWidget {
                       state,
                       style: small?.copyWith(color: color, fontWeight: FontWeight.w600),
                     ),
-                  Text(st == null ? 'snapd' : 'snapd ${st.snapdVersion}', style: small?.copyWith(color: c.onSurfaceVariant)),
+                  Text(
+                    st == null ? 'snapd' : 'snapd ${_displayVersion(st.snapdVersion)}',
+                    style: small?.copyWith(color: c.onSurfaceVariant),
+                  ),
                 ],
               ),
             ),

@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-import '../data/confdb_repository.dart';
 import '../data/models.dart';
 
 enum Destination { overview, data, access }
@@ -56,6 +55,16 @@ class PlaygroundRoute extends AuthoringRoute {
   final String view;
   final String? path;
   final String? snap;
+}
+
+/// The editor's signing-key step: pick (or create) the key to sign with,
+/// before the sign dialog itself.
+class SigningKeyRoute extends AuthoringRoute {
+  const SigningKeyRoute(this.id, {required this.view});
+  @override
+  final SchemaId id;
+  @override
+  final String view;
 }
 
 class DataRoute extends AppRoute {
@@ -118,28 +127,6 @@ class AppController extends ChangeNotifier {
   double viewsPaneWidth = defaultViewsPaneWidth;
   double treePaneWidth = defaultTreePaneWidth;
   double jsonPaneWidth = defaultJsonPaneWidth;
-
-  StoreAccount? _store;
-  bool _checkingStore = false;
-
-  /// Snapcraft login; null until first checked.
-  StoreAccount? get storeAccount => _store;
-  bool get checkingStore => _checkingStore;
-
-  /// Runs `snapcraft whoami` (through the repository) and keeps the result.
-  Future<void> refreshStoreAccount(ConfdbRepository repo) async {
-    if (_checkingStore) return;
-    _checkingStore = true;
-    notifyListeners();
-    try {
-      _store = await repo.storeAccount();
-    } catch (e) {
-      _store = StoreAccount.unavailable(detail: '$e');
-    } finally {
-      _checkingStore = false;
-      notifyListeners();
-    }
-  }
 
   bool _statusError = false;
 

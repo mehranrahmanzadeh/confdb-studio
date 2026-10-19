@@ -6,6 +6,7 @@ import 'package:confdb_studio/data/fake/fake_repository.dart';
 import 'package:confdb_studio/data/fake/sample_data.dart';
 import 'package:confdb_studio/data/models.dart';
 import 'package:confdb_studio/data/store/snap_store_client.dart';
+import 'package:confdb_studio/data/store/store_auth_client.dart';
 import 'package:confdb_studio/domain/store_sync.dart';
 import 'package:confdb_studio/state/app_controller.dart';
 import 'package:flutter/material.dart';
@@ -26,28 +27,85 @@ Future<T> settle<T>(WidgetTester tester, Future<T> future) async {
   return result;
 }
 
+/// A test double for [StoreAuthClient], recording every call and letting
+/// each test script [login]/[restoreCredentials]/[request]'s behavior.
+class FakeStoreAuthClient implements StoreAuthClient {
+  FakeStoreAuthClient({this.onLogin, this.onRestore, this.onRequest});
+
+  final Future<StoreAuthSession> Function({required StoreEnv env, required String email, required String password, String? otp})? onLogin;
+  final Future<StoreAuthSession> Function({required StoreEnv env, required String credentialsJson})? onRestore;
+  final Future<StoreApiResponse> Function(String method, String path, {String? body, String? contentType})? onRequest;
+
+  final calls = <Map<String, Object?>>[];
+  bool loggedOutCalled = false;
+
+  @override
+  Future<StoreAuthSession> login({required StoreEnv env, required String email, required String password, String? otp}) {
+    calls.add({'op': 'login', 'env': env, 'email': email, 'password': password, 'otp': otp});
+    final f = onLogin;
+    if (f == null) throw UnimplementedError('no onLogin configured');
+    return f(env: env, email: email, password: password, otp: otp);
+  }
+
+  @override
+  Future<StoreAuthSession> restoreCredentials({required StoreEnv env, required String credentialsJson}) {
+    calls.add({'op': 'restoreCredentials', 'env': env, 'credentialsJson': credentialsJson});
+    final f = onRestore;
+    if (f == null) throw UnimplementedError('no onRestore configured');
+    return f(env: env, credentialsJson: credentialsJson);
+  }
+
+  @override
+  Future<void> logout() async => loggedOutCalled = true;
+
+  @override
+  Future<void> cancelLogin() async {}
+
+  @override
+  Future<StoreAccountInfo> whoami() async => throw UnimplementedError('whoami is unused by SnapStoreClient');
+
+  Map<String, Object?>? accountInfoResult;
+  String? registeredKeyAssertion;
+
+  @override
+  Future<Map<String, Object?>> accountInfo() async {
+    calls.add({'op': 'accountInfo'});
+    return accountInfoResult ?? const {};
+  }
+
+  @override
+  Future<void> registerKey(String accountKeyRequest) async {
+    calls.add({'op': 'registerKey', 'accountKeyRequest': accountKeyRequest});
+    registeredKeyAssertion = accountKeyRequest;
+  }
+
+  @override
+  Future<StoreApiResponse> request(String method, String path, {String? body, String? contentType}) {
+    calls.add({'op': 'request', 'method': method, 'path': path, 'body': body, 'contentType': contentType});
+    final f = onRequest;
+    if (f == null) throw UnimplementedError('no onRequest configured');
+    return f(method, path, body: body, contentType: contentType);
+  }
+}
+
 void main() {
   group('SnapStoreClient', () {
     late Directory dir;
     setUp(() => dir = Directory.systemTemp.createTempSync('store'));
     tearDown(() => dir.deleteSync(recursive: true));
 
-    /// A stand-in for `python3 store_helper.py …` that prints [stdout] and
-    /// keeps its arguments and stdin for inspection.
-    SnapStoreClient client(String stdout, {String stderr = ''}) {
-      final out = File('${dir.path}/out')..writeAsStringSync(stdout);
-      final err = File('${dir.path}/err')..writeAsStringSync(stderr);
-      final f = File('${dir.path}/python')
-        ..writeAsStringSync(
-          '#!/bin/sh\necho "\$@" > ${dir.path}/args\ncat > ${dir.path}/stdin\n'
-          'cat ${err.path} >&2\ncat ${out.path}\n',
-        );
-      Process.runSync('chmod', ['+x', f.path]);
-      return SnapStoreClient(python: f.path, helper: 'helper.py', authFile: '${dir.path}/store.surl');
+    /// A client over [auth], optionally starting with a saved login (as if
+    /// an earlier run had called `login()`).
+    SnapStoreClient client({FakeStoreAuthClient? auth, String? savedEnv, String savedCredentials = 'creds'}) {
+      final file = File('${dir.path}/store.json');
+      if (savedEnv != null) {
+        file.writeAsStringSync(jsonEncode({'env': savedEnv, 'credentials_json': savedCredentials}));
+      }
+      return SnapStoreClient(authClient: auth ?? FakeStoreAuthClient(), authFile: file.path);
     }
 
-    String response(int status, Object body, {String store = 'production'}) =>
-        jsonEncode({'status': status, 'body': body is String ? body : jsonEncode(body), 'store': store});
+    StoreAccountInfo account({String id = 'AbC', String email = 'dev@example.com', String username = 'dev'}) =>
+        StoreAccountInfo(id: id, email: email, username: username, displayName: '', permissions: const [], channels: const [], expires: '');
 
     test('lists schemas, with the revision when the Store sends one', () async {
       final views = {
@@ -57,27 +115,30 @@ void main() {
           ],
         },
       };
-      final body = jsonEncode({
+      final networkBody = jsonEncode({
         'storage': {
           'schema': {'wifi': 'any'},
         },
       });
-      final c = client(
-        response(200, {
-          'assertions': [
-            {
-              'headers': {'type': 'confdb-schema', 'account-id': 'AbC', 'authority-id': 'AbC', 'name': 'network', 'views': views},
-              'body': body,
-            },
-            {
-              'headers': {'type': 'confdb-schema', 'account-id': 'AbC', 'name': 'fleet', 'revision': '3', 'views': views},
-              'body': '',
-            },
-          ],
-        }),
+      final auth = FakeStoreAuthClient(
+        onRequest: (method, path, {body, contentType}) async => StoreApiResponse(
+          status: 200,
+          body: jsonEncode({
+            'assertions': [
+              {
+                'headers': {'type': 'confdb-schema', 'account-id': 'AbC', 'authority-id': 'AbC', 'name': 'network', 'views': views},
+                'body': networkBody,
+              },
+              {
+                'headers': {'type': 'confdb-schema', 'account-id': 'AbC', 'name': 'fleet', 'revision': '3', 'views': views},
+                'body': '',
+              },
+            ],
+          }),
+        ),
       );
-      final list = await c.listSchemas();
-      expect(File('${dir.path}/args').readAsStringSync().trim(), 'helper.py request GET /api/v2/confdb-schemas');
+      final list = await client(auth: auth).listSchemas();
+      expect(auth.calls.single, {'op': 'request', 'method': 'GET', 'path': '/api/v2/confdb-schemas', 'body': null, 'contentType': null});
       expect(list.map((s) => s.id.path), ['AbC/network', 'AbC/fleet']);
       expect(list.first.revision, isNull, reason: 'the documented headers leave revision out');
       expect(list.first.view('wifi-setup')?.rules.single.storage, 'wifi.ssid');
@@ -85,41 +146,53 @@ void main() {
     });
 
     test('sends a signed assertion as x.ubuntu.assertion', () async {
-      final c = client(response(201, {'assertions': <Object>[]}));
-      await c.register('type: confdb-schema\n\nsig');
-      expect(
-        File('${dir.path}/args').readAsStringSync().trim(),
-        'helper.py request POST /api/v2/confdb-schemas application/x.ubuntu.assertion',
+      final auth = FakeStoreAuthClient(
+        onRequest: (method, path, {body, contentType}) async => StoreApiResponse(status: 201, body: jsonEncode({'assertions': <Object>[]})),
       );
-      expect(File('${dir.path}/stdin').readAsStringSync(), 'type: confdb-schema\n\nsig');
+      await client(auth: auth).register('type: confdb-schema\n\nsig');
+      expect(auth.calls.single, {
+        'op': 'request',
+        'method': 'POST',
+        'path': '/api/v2/confdb-schemas',
+        'body': 'type: confdb-schema\n\nsig',
+        'contentType': 'application/x.ubuntu.assertion',
+      });
     });
 
     test('reports the Store’s error list', () async {
-      final c = client(
-        response(400, {
-          'error-list': [
-            {'code': 'invalid-request', 'message': 'account-id and authority-id must match the requesting user.'},
-          ],
-        }),
+      final auth = FakeStoreAuthClient(
+        onRequest: (method, path, {body, contentType}) async => StoreApiResponse(
+          status: 400,
+          body: jsonEncode({
+            'error-list': [
+              {'code': 'invalid-request', 'message': 'account-id and authority-id must match the requesting user.'},
+            ],
+          }),
+        ),
       );
       await expectLater(
-        c.register('x'),
+        client(auth: auth).register('x'),
         throwsA(isA<ConfdbException>().having((e) => e.message, 'message', contains('must match the requesting user'))),
       );
     });
 
     test('a 401 means the login needs renewing', () async {
-      final c = client(response(401, {'error-list': <Object>[]}));
+      final auth = FakeStoreAuthClient(
+        onRequest: (method, path, {body, contentType}) async => throw const ConfdbException('expired', kind: ConfdbErrorKind.signedOut),
+        onRestore: ({required env, required credentialsJson}) async =>
+            throw const ConfdbException('expired', kind: ConfdbErrorKind.signedOut),
+      );
+      final c = client(auth: auth, savedEnv: 'production');
       await expectLater(c.listSchemas(), throwsA(isA<ConfdbException>().having((e) => e.kind, 'kind', ConfdbErrorKind.signedOut)));
       expect(await c.session(), isA<StoreSession>().having((s) => s.signedIn, 'signedIn', isFalse));
     });
 
     test('whoami gives the session', () async {
-      final s = await client(
-        response(200, {
-          'account': {'username': 'dev', 'email': 'dev@example.com', 'id': 'AbC'},
-        }, store: 'staging'),
-      ).session();
+      final auth = FakeStoreAuthClient(
+        onRestore: ({required env, required credentialsJson}) async =>
+            StoreAuthSession(account: account(), credentialsJson: credentialsJson),
+      );
+      final s = await client(auth: auth, savedEnv: 'staging').session();
       expect(s.signedIn, isTrue);
       expect(s.env, StoreEnv.staging);
       expect(s.username, 'dev');
@@ -127,30 +200,32 @@ void main() {
     });
 
     test('no saved login is signed out, not an error', () async {
-      final s = await client(jsonEncode({'error': 'Not signed in to the Snap Store.', 'code': 'not-logged-in'})).session();
+      final s = await client().session();
       expect(s.signedIn, isFalse);
     });
 
-    test('login passes the credentials on stdin and asks for a code when needed', () async {
-      final c = client(jsonEncode({'error': '2-factor authentication required.', 'code': 'twofactor-required'}));
+    test('login reports when a one-time code is needed', () async {
+      final auth = FakeStoreAuthClient(
+        onLogin: ({required env, required email, required password, otp}) async =>
+            throw const ConfdbException('2-factor authentication required.', kind: ConfdbErrorKind.twoFactorRequired),
+      );
+      final c = client(auth: auth);
       await expectLater(
         c.login(email: 'dev@example.com', password: 'hunter2', env: StoreEnv.staging),
         throwsA(isA<ConfdbException>().having((e) => e.kind, 'kind', ConfdbErrorKind.twoFactorRequired)),
       );
-      expect(File('${dir.path}/args').readAsStringSync().trim(), 'helper.py login', reason: 'the password isn’t an argument');
-      expect(jsonDecode(File('${dir.path}/stdin').readAsStringSync()), {
-        'email': 'dev@example.com',
-        'password': 'hunter2',
-        'store': 'staging',
-      });
+      expect(auth.calls.single, {'op': 'login', 'env': StoreEnv.staging, 'email': 'dev@example.com', 'password': 'hunter2', 'otp': null});
     });
 
-    test('a missing surl is reported plainly', () async {
-      final c = client('', stderr: "ModuleNotFoundError: No module named 'surl'");
-      await expectLater(
-        c.listSchemas(),
-        throwsA(isA<ConfdbException>().having((e) => e.message, 'message', contains('surl isn’t available'))),
+    test('a successful login saves the credentials for next time', () async {
+      final auth = FakeStoreAuthClient(
+        onLogin: ({required env, required email, required password, otp}) async =>
+            StoreAuthSession(account: account(), credentialsJson: 'opaque-blob'),
       );
+      final c = client(auth: auth);
+      final s = await c.login(email: 'dev@example.com', password: 'hunter2', env: StoreEnv.production);
+      expect(s.signedIn, isTrue);
+      expect(jsonDecode(File('${dir.path}/store.json').readAsStringSync()), {'env': 'production', 'credentials_json': 'opaque-blob'});
     });
   });
 
@@ -296,12 +371,17 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign & acknowledge'));
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('acme-release'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sign & Acknowledge'));
     await tester.pumpAndSettle();
 
     final push = find.widgetWithText(CheckboxListTile, 'Push to the Snap Store');
     expect(tester.widget<CheckboxListTile>(push).value, isTrue, reason: 'on when signed in');
     expect(find.textContaining('Registers revision 5'), findsOneWidget);
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Sign and acknowledge'));
     await tester.tap(find.widgetWithText(FilledButton, 'Sign and acknowledge'));
     await tester.pumpAndSettle();
 

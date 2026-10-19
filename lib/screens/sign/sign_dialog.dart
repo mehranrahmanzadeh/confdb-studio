@@ -5,31 +5,41 @@ import '../../domain/analysis.dart';
 import '../../state/app_controller.dart';
 import '../../state/app_scope.dart';
 import '../../theme/app_theme.dart';
-import '../../util/format.dart';
 import '../../widgets/app_icons.dart';
 import '../../widgets/cli_disclosure.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
-import '../../widgets/fields.dart';
+import '../../widgets/signing_key_badge.dart';
 import '../../widgets/status_badge.dart';
-import '../../state/account_names.dart';
 import '../store/store_login_dialog.dart';
 
-/// 7.5 Sign & acknowledge (SignDialog.dc.html, -Progress).
-Future<void> showSignDialog(BuildContext context, ConfdbSchema draft, ConfdbSchema? base) {
+/// 7.5 Sign & acknowledge (SignDialog.dc.html, -Progress). The signing key
+/// is picked on the editor's "Signing key" step; this dialog just confirms
+/// and runs the sign (and optional push).
+Future<void> showSignDialog(BuildContext context, ConfdbSchema draft, ConfdbSchema? base, SigningKey key, {bool? keyRegistered}) {
   final scope = context.scope;
   final messenger = ScaffoldMessenger.of(context);
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (context) => _SignDialog(draft: draft, base: base, scope: scope, messenger: messenger),
+    builder: (context) =>
+        _SignDialog(draft: draft, base: base, signKey: key, keyRegistered: keyRegistered, scope: scope, messenger: messenger),
   );
 }
 
 class _SignDialog extends StatefulWidget {
-  const _SignDialog({required this.draft, required this.base, required this.scope, required this.messenger});
+  const _SignDialog({
+    required this.draft,
+    required this.base,
+    required this.signKey,
+    required this.keyRegistered,
+    required this.scope,
+    required this.messenger,
+  });
   final ConfdbSchema draft;
   final ConfdbSchema? base;
+  final SigningKey signKey;
+  final bool? keyRegistered;
   final AppScope scope;
   final ScaffoldMessengerState messenger;
 
@@ -38,24 +48,9 @@ class _SignDialog extends StatefulWidget {
 }
 
 class _SignDialogState extends State<_SignDialog> {
-  late Future<(List<SigningKey>, List<SnapInfo>)> _context = _load();
+  late final Future<List<SnapInfo>> _snaps = widget.scope.repository.listSnaps();
 
-  Future<(List<SigningKey>, List<SnapInfo>)> _load() async {
-    final repo = widget.scope.repository;
-    final r = await Future.wait([repo.signingKeys(), repo.listSnaps()]);
-    return (r[0] as List<SigningKey>, r[1] as List<SnapInfo>);
-  }
-
-  /// Re-reads `snap keys` after the user created or registered a key.
-  void _refreshKeys() {
-    setState(() {
-      _key = null;
-      _context = _load();
-    });
-    widget.scope.app.refreshStoreAccount(widget.scope.repository);
-  }
-
-  SigningKey? _key;
+  SigningKey get _key => widget.signKey;
   SignPhase? _phase;
   Object? _error;
 
@@ -74,7 +69,6 @@ class _SignDialogState extends State<_SignDialog> {
 
   Future<void> _sign() async {
     final key = _key;
-    if (key == null) return;
     final app = widget.scope.app;
     setState(() {
       _error = null;
@@ -121,6 +115,7 @@ class _SignDialogState extends State<_SignDialog> {
     final added = diff.where((d) => d.added).length;
     final removed = diff.length - added;
     final file = draft.id.name;
+    final key = _key;
 
     return Dialog(
       backgroundColor: c.surfaceContainerHigh,
@@ -128,16 +123,13 @@ class _SignDialogState extends State<_SignDialog> {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 640),
         child: FutureBuilder(
-          future: _context,
+          future: _snaps,
           builder: (context, snap) {
-            final keys = snap.data?.$1 ?? const <SigningKey>[];
-            final snaps = snap.data?.$2 ?? const <SnapInfo>[];
-            _key ??= keys.firstOrNull;
+            final snaps = snap.data ?? const <SnapInfo>[];
             final users = {
               for (final s in snaps)
                 if (s.plugs.any((p) => p.view.schemaId == draft.id && p.state.isConnected)) s.name,
             }.toList();
-            final key = _key;
 
             return SingleChildScrollView(
               padding: const EdgeInsets.all(24),
@@ -170,65 +162,35 @@ class _SignDialogState extends State<_SignDialog> {
                     const SizedBox(height: 8),
                     _DiffList(lines: diff),
                     const SizedBox(height: 20),
-                    if (snap.connectionState != ConnectionState.waiting && keys.isEmpty)
-                      _NoKeys(
-                        account: draft.id.account,
-                        error: snap.error,
-                        loggedOut: !(widget.scope.app.storeAccount?.isLoggedIn ?? true),
-                        onRefresh: _refreshKeys,
-                      )
-                    else
-                      Opacity(
-                        opacity: _busy ? 0.38 : 1,
-                        child: OutlinedSelect<SigningKey>(
-                          label: 'Signing key',
-                          enabled: !_busy && keys.isNotEmpty,
-                          helper: keys.isEmpty
-                              ? 'Loading keys…'
-                              : 'Registered to account ${context.accounts?.alias(draft.id.account) ?? draft.id.account} · ${plural(keys.length, 'key')} available',
-                          items: [
-                            for (final k in keys)
-                              (
-                                k,
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(color: c.surfaceContainerLow, borderRadius: BorderRadius.circular(12)),
+                      child: Row(
+                        children: [
+                          Icon(AppIcons.key, size: 20, color: c.onSurfaceVariant),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text(k.name, style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w500)),
-                                    Text(
-                                      'SHA3-384 · ${k.shortFingerprint}',
-                                      style: context.text.bodySmall?.mono.copyWith(color: c.onSurfaceVariant),
-                                    ),
+                                    Text(key.name, style: context.text.bodyLarge?.copyWith(fontSize: 15, fontWeight: FontWeight.w500)),
+                                    const SizedBox(width: 8),
+                                    RegistrationBadge(registered: widget.keyRegistered),
                                   ],
                                 ),
-                              ),
-                          ],
-                          onSelected: (k) => setState(() => _key = k),
-                          child: Row(
-                            children: [
-                              Icon(AppIcons.key, size: 20, color: c.onSurfaceVariant),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: key == null
-                                    ? Text('No key', style: context.text.bodyLarge)
-                                    : Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            key.name,
-                                            style: context.text.bodyLarge?.copyWith(fontSize: 15, fontWeight: FontWeight.w500),
-                                          ),
-                                          Text(
-                                            'SHA3-384 · ${key.shortFingerprint}',
-                                            style: context.text.bodySmall?.mono.copyWith(color: c.onSurfaceVariant),
-                                          ),
-                                        ],
-                                      ),
-                              ),
-                            ],
+                                Text(
+                                  'SHA3-384 · ${key.shortFingerprint}',
+                                  style: context.text.bodySmall?.mono.copyWith(color: c.onSurfaceVariant),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
+                        ],
                       ),
+                    ),
                     const SizedBox(height: 16),
                     InlineMessage(
                       kind: MessageKind.info,
@@ -245,7 +207,7 @@ class _SignDialogState extends State<_SignDialog> {
                     const SizedBox(height: 8),
                     _StoreOption(push: _push, busy: _busy, revision: _revision, onChanged: (v) => setState(() => _push = v)),
                     const SizedBox(height: 16),
-                    CliDisclosure('snap sign -k ${key?.name ?? '<key>'} < $file.json > $file.assert && sudo snap ack $file.assert'),
+                    CliDisclosure('snap sign -k ${key.name} < $file.json > $file.assert && sudo snap ack $file.assert'),
                     if (_busy) ...[
                       const SizedBox(height: 16),
                       Semantics(
@@ -259,9 +221,9 @@ class _SignDialogState extends State<_SignDialog> {
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Text(switch (_phase) {
-                                    SignPhase.signing => 'Signing with ${key?.name} …',
-                                    SignPhase.pushing => 'Signed with ${key?.name} · registering revision $_revision in the Snap Store…',
-                                    _ => 'Signed with ${key?.name} · acknowledging revision $_revision with snapd…',
+                                    SignPhase.signing => 'Signing with ${key.name} …',
+                                    SignPhase.pushing => 'Signed with ${key.name} · registering revision $_revision in the Snap Store…',
+                                    _ => 'Signed with ${key.name} · acknowledging revision $_revision with snapd…',
                                   }, style: context.text.bodyMedium),
                                 ),
                               ],
@@ -301,7 +263,7 @@ class _SignDialogState extends State<_SignDialog> {
                           icon: AppIcons.verified,
                           busy: _busy,
 
-                          onPressed: key == null ? null : _sign,
+                          onPressed: widget.keyRegistered == false ? null : _sign,
                         ),
                       ],
                     ),
@@ -370,49 +332,6 @@ class _DiffList extends StatelessWidget {
             ),
         ],
       ),
-    );
-  }
-}
-
-/// Shown instead of the key picker when `snap keys` lists nothing.
-class _NoKeys extends StatelessWidget {
-  const _NoKeys({required this.account, required this.error, required this.loggedOut, required this.onRefresh});
-  final String account;
-  final Object? error;
-  final bool loggedOut;
-  final VoidCallback onRefresh;
-
-  @override
-  Widget build(BuildContext context) {
-    // Key names are free-form; the alias makes a readable one.
-    final name = '${context.accounts?.alias(account) ?? account}-release';
-    Widget step(int n, String text, String command) => Padding(
-      padding: const EdgeInsets.only(top: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          CodeText('$n. $text', style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-          CliDisclosure(command, initiallyOpen: true),
-        ],
-      ),
-    );
-    return InlineMessage(
-      kind: MessageKind.warning,
-      title: error == null ? 'No signing keys found' : 'Couldn’t list signing keys',
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (error != null) ...[CodeText('$error'), const SizedBox(height: 8)],
-          CodeText(
-            'Schemas are signed with a key registered to the account `$account`. '
-            'Create one in a terminal (it asks for a passphrase), register it, then refresh.',
-          ),
-          if (loggedOut) step(1, 'Log in to snapcraft', 'snapcraft login'),
-          step(loggedOut ? 2 : 1, 'Create a key', 'snap create-key $name'),
-          step(loggedOut ? 3 : 2, 'Register it to `$account`', 'snapcraft register-key $name'),
-        ],
-      ),
-      actions: [OnContainerButton(label: 'Refresh keys', icon: AppIcons.retry, onPressed: onRefresh)],
     );
   }
 }

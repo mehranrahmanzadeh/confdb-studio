@@ -28,22 +28,30 @@ void main() {
     await open(tester, const SchemaEditorRoute(networkId));
     await tester.tap(find.textContaining('Add wifi.signal'));
     await tester.pump(const Duration(milliseconds: 500));
-    expect(button('Sign & acknowledge'), findsNothing, reason: 'the editor offers Next');
-    expect(find.bySemanticsLabel(RegExp('step 3 of 5, Lint')), findsOneWidget);
+    expect(button('Sign & Acknowledge'), findsNothing, reason: 'the editor offers Next');
+    expect(find.bySemanticsLabel(RegExp('step 1 of 4, Schema')), findsOneWidget);
 
     await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
     expect(find.byType(PlaygroundPanel), findsOneWidget);
     expect(find.bySemanticsLabel('Schema summary'), findsOneWidget, reason: 'the header stays');
-    expect(find.bySemanticsLabel(RegExp('step 4 of 5, Playground')), findsOneWidget);
-    expect(find.text('Next'), findsNothing);
+    expect(find.bySemanticsLabel(RegExp('step 2 of 4, Playground')), findsOneWidget);
+    expect(find.text('Sign & Acknowledge'), findsNothing);
 
-    // A denied simulation doesn't stop signing.
+    // A denied simulation doesn't stop proceeding to the signing-key step.
     await tester.enterText(find.widgetWithText(TextField, 'Request path'), 'no.such.path');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     expect(find.textContaining('Denied at step'), findsOneWidget);
-    await tester.tap(button('Sign & acknowledge'));
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel(RegExp('step 3 of 4, Signing key')), findsOneWidget);
+    expect(button('Sign & Acknowledge'), findsOneWidget);
+    expect(tester.widget<ButtonStyleButton>(button('Sign & Acknowledge')).onPressed, isNull, reason: 'no key selected yet');
+
+    await tester.tap(find.text('acme-release'));
+    await tester.pumpAndSettle();
+    await tester.tap(button('Sign & Acknowledge'));
     await tester.pumpAndSettle();
     expect(find.byType(Dialog), findsOneWidget);
   });

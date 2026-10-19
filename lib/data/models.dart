@@ -707,41 +707,9 @@ class SystemStatus {
   final bool confdbEnabled;
 }
 
-enum StoreLogin {
-  /// `snapcraft whoami` succeeded.
-  loggedIn,
-
-  /// snapcraft is installed but has no credentials.
-  loggedOut,
-
-  /// snapcraft isn't installed, or couldn't be run.
-  unavailable,
-}
-
-/// The Snap Store developer account snapcraft is logged in to. Signing keys
-/// must be registered to this account before schemas can be acknowledged.
-@immutable
-class StoreAccount {
-  const StoreAccount({required this.login, this.username, this.email, this.accountId, this.detail});
-  const StoreAccount.loggedOut({this.detail}) : login = StoreLogin.loggedOut, username = null, email = null, accountId = null;
-  const StoreAccount.unavailable({this.detail}) : login = StoreLogin.unavailable, username = null, email = null, accountId = null;
-
-  final StoreLogin login;
-  final String? username;
-  final String? email;
-
-  /// The `account-id` schemas are signed under.
-  final String? accountId;
-
-  /// Why the check failed, for the account panel.
-  final String? detail;
-
-  bool get isLoggedIn => login == StoreLogin.loggedIn;
-}
-
 enum SignPhase { signing, pushing, acknowledging }
 
-/// Which Snap Store the app signs in to (surl's `-s`).
+/// Which Snap Store the app signs in to.
 enum StoreEnv {
   production('Production', 'dashboard.snapcraft.io'),
   staging('Staging', 'dashboard.staging.snapcraft.io');
@@ -753,7 +721,7 @@ enum StoreEnv {
   static StoreEnv parse(String? s) => s == 'staging' ? staging : production;
 }
 
-/// The app's own Snap Store login (through surl), used to list and register
+/// The app's own Snap Store login, used to list and register
 /// schemas in the Store. Separate from snapcraft's, which signing keys need.
 @immutable
 class StoreSession {
@@ -766,7 +734,7 @@ class StoreSession {
   final String? email;
   final String? accountId;
 
-  /// Why the session isn't usable, e.g. surl isn't installed.
+  /// Why the session isn't usable, e.g. the Snap Store backend isn't available.
   final String? detail;
 
   bool get signedIn => env != null;
