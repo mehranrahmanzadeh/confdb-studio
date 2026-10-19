@@ -120,6 +120,8 @@ class _Native {
     logout = _lib.lookupFunction<_HandleOutErrToBoolNative, _HandleOutErrToBoolDart>('auth_logout');
     cancel = _lib.lookupFunction<_HandleOutErrToBoolNative, _HandleOutErrToBoolDart>('auth_cancel');
     whoami = _lib.lookupFunction<_HandleOutErrToStringNative, _HandleOutErrToStringDart>('auth_whoami');
+    accountInfo = _lib.lookupFunction<_HandleOutErrToStringNative, _HandleOutErrToStringDart>('auth_account_info');
+    registerKey = _lib.lookupFunction<_OneArgToBoolNative, _OneArgToBoolDart>('auth_register_key');
     request = _lib.lookupFunction<_RequestNative, _RequestDart>('auth_request');
     pendingEvents = _lib.lookupFunction<_PendingEventsNative, _PendingEventsDart>('auth_pending_events');
     drainEvents = _lib.lookupFunction<_DrainEventsNative, _DrainEventsDart>('auth_drain_events');
@@ -140,6 +142,8 @@ class _Native {
   late final _HandleOutErrToBoolDart logout;
   late final _HandleOutErrToBoolDart cancel;
   late final _HandleOutErrToStringDart whoami;
+  late final _HandleOutErrToStringDart accountInfo;
+  late final _OneArgToBoolDart registerKey;
   late final _RequestDart request;
   late final _PendingEventsDart pendingEvents;
   late final _DrainEventsDart drainEvents;
@@ -167,9 +171,14 @@ String _dylibPath() {
   return candidates.first;
 }
 
-ConfdbErrorKind _kindOf(String code) => switch (code) {
+ConfdbErrorKind _kindOf(String code, {int? status}) => switch (code) {
   'network' => ConfdbErrorKind.offline,
-  'http' => ConfdbErrorKind.other,
+  // The store answers 401 once the persisted macaroon's SSO discharge has
+  // expired or been revoked; there is no silent-refresh path (the SSO
+  // discharge caveat isn't reissued short of a fresh login), so this is
+  // surfaced the same way `credentials_rejected`/`no_active_session` are:
+  // as "signed out", which sends the user back through the login dialog.
+  'http' => status == 401 ? ConfdbErrorKind.signedOut : ConfdbErrorKind.other,
   'credentials_rejected' => ConfdbErrorKind.signedOut,
   'two_factor_required' => ConfdbErrorKind.twoFactorRequired,
   'no_active_session' => ConfdbErrorKind.signedOut,
@@ -185,9 +194,13 @@ ConfdbException _errorFromJson(String json) {
     final map = jsonDecode(json) as Map;
     final kind = map['kind'] as String? ?? 'other';
     final detail = map['detail'] as String? ?? json;
-    final status = map['status'];
-    final message = status == null ? detail : 'HTTP $status: $detail';
-    return ConfdbException(message, kind: _kindOf(kind));
+    final status = map['status'] as int?;
+    final message = status == 401
+        ? 'The Snap Store login has expired or was revoked. Sign in again.\n$detail'
+        : status == null
+        ? detail
+        : 'HTTP $status: $detail';
+    return ConfdbException(message, kind: _kindOf(kind, status: status));
   } on FormatException {
     return ConfdbException(json, kind: ConfdbErrorKind.other);
   }
@@ -239,10 +252,32 @@ String _localErrorJson(Object error) => jsonEncode({'kind': 'unsupported', 'deta
     final n = _Native(call.libPath);
     final outErr = pkg_ffi.calloc<ffi.Pointer<pkg_ffi.Utf8>>();
     try {
+      String errorPayload() {
+        final err = outErr.value;
+        final message = err.address == 0 ? '{"kind":"other","detail":"unknown error"}' : err.toDartString();
+        if (err.address != 0) n.freeString(err);
+        return message;
+      }
+
+      // `auth_register_key` returns a bool, not a string, so it can't share
+      // the pointer-returning branch below.
+      if (call.op == 'register_key') {
+        final assertion = call.args[0]!.toNativeUtf8();
+        final bool ok;
+        try {
+          ok = n.registerKey(n.runtimeGet(), assertion, outErr);
+        } finally {
+          pkg_ffi.calloc.free(assertion);
+        }
+        return ok ? (ok: true, payload: '') : (ok: false, payload: errorPayload());
+      }
+
       final ffi.Pointer<pkg_ffi.Utf8> result;
       switch (call.op) {
         case 'whoami':
           result = n.whoami(n.runtimeGet(), outErr);
+        case 'account_info':
+          result = n.accountInfo(n.runtimeGet(), outErr);
         case 'request':
           final method = call.args[0]!.toNativeUtf8();
           final path = call.args[1]!.toNativeUtf8();
@@ -264,10 +299,7 @@ String _localErrorJson(Object error) => jsonEncode({'kind': 'unsupported', 'deta
           throw ArgumentError('unknown blocking op: ${call.op}');
       }
       if (result.address == 0) {
-        final err = outErr.value;
-        final message = err.address == 0 ? '{"kind":"other","detail":"unknown error"}' : err.toDartString();
-        if (err.address != 0) n.freeString(err);
-        return (ok: false, payload: message);
+        return (ok: false, payload: errorPayload());
       }
       final text = result.toDartString();
       n.freeString(result);
@@ -300,6 +332,30 @@ class RustAuthClient implements StoreAuthClient {
 
   final String _libPath;
   StoreEnv? _activeEnv;
+
+  /// Whether a previous [login] call left the Rust state machine parked in
+  /// `Needs2FACode` (credentials accepted, waiting on a one-time code). The
+  /// machine lives on a process-wide runtime handle, not per-call state, so
+  /// the *next* [login] call — once the UI has the code — must resume it
+  /// with `submit2faCode` only. Reissuing `auth_start_login`/
+  /// `auth_submit_credentials` while parked there is an illegal transition
+  /// (`rust/src/auth_core.rs` rejects it as "unexpected event in
+  /// Needs2FACode").
+  bool _awaitingOtp = false;
+
+  /// Tracks whether the machine has reached `Succeeded` (via [login] or
+  /// [restoreCredentials]); cleared on [logout].
+  ///
+  /// A caller can legitimately ask to [login] again while already signed
+  /// in — e.g. a UI retry prompted by some *other* call's 401: the
+  /// persisted macaroon is known stale (that's exactly why we're here),
+  /// so reusing it would just repeat the failure. Reissuing
+  /// `auth_start_login` on an already-`Succeeded` machine is also an
+  /// illegal transition (`rust/src/auth_core.rs` rejects it as "already
+  /// logged in; call logout() first"), so [login] always logs out first
+  /// when this is set, discarding the stale macaroon before the fresh
+  /// attempt — never short-circuiting to the old credentials.
+  String? _activeCredentialsJson;
 
   _Native get _n {
     try {
@@ -388,8 +444,11 @@ class RustAuthClient implements StoreAuthClient {
     }
   }
 
-  StoreAuthSession _sessionFromSucceeded(Map data, StoreAccountInfo account) =>
-      StoreAuthSession(account: account, credentialsJson: data['credentials_json'] as String? ?? '');
+  StoreAuthSession _sessionFromSucceeded(Map data, StoreAccountInfo account) {
+    final credentialsJson = data['credentials_json'] as String? ?? '';
+    _activeCredentialsJson = credentialsJson;
+    return StoreAuthSession(account: account, credentialsJson: credentialsJson);
+  }
 
   @override
   Future<StoreAuthSession> login({
@@ -400,34 +459,69 @@ class RustAuthClient implements StoreAuthClient {
   }) async {
     _ensureInitialized(env);
 
-    _call((h, e) => _n.startLogin(h, e));
-
-    final emailPtr = email.toNativeUtf8();
-    final passwordPtr = password.toNativeUtf8();
-    try {
-      _call((h, e) => _n.submitCredentials(h, emailPtr, passwordPtr, e));
-    } finally {
-      pkg_ffi.calloc.free(emailPtr);
-      pkg_ffi.calloc.free(passwordPtr);
-    }
-
-    var event = await _awaitTerminalEvent();
-
-    if (event.type == 'needs_2fa_code') {
+    _Event event;
+    if (_awaitingOtp) {
+      // Resume the parked machine with just the code instead of restarting
+      // the whole login (see [_awaitingOtp]'s doc comment).
       if (otp == null || otp.isEmpty) {
         throw const ConfdbException(
           'This account needs a two-factor authentication code.',
           kind: ConfdbErrorKind.twoFactorRequired,
         );
       }
-      final otpPtr = otp.toNativeUtf8();
-      try {
-        _call((h, e) => _n.submit2faCode(h, otpPtr, e));
-      } finally {
-        pkg_ffi.calloc.free(otpPtr);
+      event = await _submitOtp(otp);
+    } else {
+      // A fresh attempt. Discard any backlog left over from a flow the UI
+      // abandoned without [cancelLogin] (e.g. the dialog was closed while
+      // parked waiting on a 2FA code) — otherwise a stale buffered event
+      // from that abandoned attempt could be misread as this attempt's
+      // outcome by [_awaitTerminalEvent] below.
+      _n.freeString(_n.drainEvents(_n.runtimeGet()));
+
+      if (_activeCredentialsJson != null) {
+        // Already `Succeeded` (see [_activeCredentialsJson]'s doc comment):
+        // log out first so the fresh credentials actually get used, rather
+        // than reissuing `auth_start_login` straight into Rust's "already
+        // logged in" guard, or silently reusing a macaroon we know is bad.
+        _activeCredentialsJson = null;
+        _call((h, e) => _n.logout(h, e));
       }
+
+      _call((h, e) => _n.startLogin(h, e));
+
+      final emailPtr = email.toNativeUtf8();
+      final passwordPtr = password.toNativeUtf8();
+      try {
+        _call((h, e) => _n.submitCredentials(h, emailPtr, passwordPtr, e));
+      } finally {
+        pkg_ffi.calloc.free(emailPtr);
+        pkg_ffi.calloc.free(passwordPtr);
+      }
+
       event = await _awaitTerminalEvent();
+
+      if (event.type == 'needs_2fa_code') {
+        if (otp == null || otp.isEmpty) {
+          _awaitingOtp = true;
+          throw const ConfdbException(
+            'This account needs a two-factor authentication code.',
+            kind: ConfdbErrorKind.twoFactorRequired,
+          );
+        }
+        event = await _submitOtp(otp);
+      }
     }
+
+    if (event.type == 'needs_2fa_code') {
+      // Wrong/expired code: the machine is parked at Needs2FACode again,
+      // ready for another `submit2faCode` resume.
+      _awaitingOtp = true;
+      throw const ConfdbException(
+        'That code wasn’t accepted. Try again.',
+        kind: ConfdbErrorKind.twoFactorRequired,
+      );
+    }
+    _awaitingOtp = false;
 
     if (event.type == 'failed') {
       final error = event.data['error'];
@@ -444,6 +538,34 @@ class RustAuthClient implements StoreAuthClient {
     return _sessionFromSucceeded(event.data, account);
   }
 
+  /// Submits a one-time code to the already-parked `Needs2FACode` state and
+  /// waits for the next terminal event.
+  Future<_Event> _submitOtp(String otp) async {
+    final otpPtr = otp.toNativeUtf8();
+    try {
+      _call((h, e) => _n.submit2faCode(h, otpPtr, e));
+    } finally {
+      pkg_ffi.calloc.free(otpPtr);
+    }
+    return _awaitTerminalEvent();
+  }
+
+  @override
+  Future<void> cancelLogin() async {
+    if (!_awaitingOtp) return; // nothing parked mid-flow to abandon
+    _awaitingOtp = false;
+    try {
+      // Only reachable while parked at `Needs2FACode` (see the guard
+      // above): valid there, resets the machine to `Idle`. Sending it
+      // while `Succeeded` would instead tear down the runtime's driver
+      // loop, so this must never fire once [_activeCredentialsJson] is set.
+      _call((h, e) => _n.cancel(h, e));
+    } on ConfdbException {
+      // Best-effort: whatever state the machine ends up in, the next
+      // [login] call starts a fresh attempt and flushes any stray events.
+    }
+  }
+
   @override
   Future<StoreAuthSession> restoreCredentials({required StoreEnv env, required String credentialsJson}) async {
     _ensureInitialized(env);
@@ -455,12 +577,15 @@ class RustAuthClient implements StoreAuthClient {
       pkg_ffi.calloc.free(jsonPtr);
     }
 
+    _activeCredentialsJson = credentialsJson;
     final account = await whoami();
     return StoreAuthSession(account: account, credentialsJson: credentialsJson);
   }
 
   @override
   Future<void> logout() async {
+    _activeCredentialsJson = null;
+    _awaitingOtp = false;
     if (_activeEnv == null) return;
     _call((h, e) => _n.logout(h, e));
   }
@@ -470,6 +595,19 @@ class RustAuthClient implements StoreAuthClient {
     final result = await Isolate.run(() => _runBlocking(_BlockingCall(_libPath, 'whoami', const [])));
     if (!result.ok) throw _errorFromJson(result.payload);
     return StoreAccountInfo.fromJson(jsonDecode(result.payload) as Map);
+  }
+
+  @override
+  Future<Map<String, Object?>> accountInfo() async {
+    final result = await Isolate.run(() => _runBlocking(_BlockingCall(_libPath, 'account_info', const [])));
+    if (!result.ok) throw _errorFromJson(result.payload);
+    return (jsonDecode(result.payload) as Map).cast<String, Object?>();
+  }
+
+  @override
+  Future<void> registerKey(String accountKeyRequest) async {
+    final result = await Isolate.run(() => _runBlocking(_BlockingCall(_libPath, 'register_key', [accountKeyRequest])));
+    if (!result.ok) throw _errorFromJson(result.payload);
   }
 
   @override

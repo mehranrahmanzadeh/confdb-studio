@@ -23,7 +23,6 @@ class SnapdRepository implements ConfdbRepository {
     this.transport, {
     FileDraftStore? drafts,
     this.snapCommand = 'snap',
-    this.snapcraftCommand = 'snapcraft',
     SnapdTransport? elevated,
     Future<List<String>?> Function(String snap)? readHooks,
     SnapStoreClient? store,
@@ -57,7 +56,6 @@ class SnapdRepository implements ConfdbRepository {
   /// not a polkit prompt.
   final SnapdTransport _elevated;
   final String snapCommand;
-  final String snapcraftCommand;
   final FileDraftStore _drafts;
   final _events = StreamController<void>.broadcast();
 
@@ -142,43 +140,18 @@ class SnapdRepository implements ConfdbRepository {
   Future<String?> developerAccount() async {
     final fromEnv = Platform.environment['CONFDB_ACCOUNT'];
     if (fromEnv != null && fromEnv.isNotEmpty) return fromEnv;
-    final store = await storeAccount();
-    if (store.accountId != null) return store.accountId;
+    try {
+      final session = await store.session();
+      if (session.accountId != null) return session.accountId;
+    } on ConfdbException {
+      // Fall through to the local scan below.
+    }
     try {
       final own = [...await listDrafts(), ...await listSchemas()].where((s) => !s.builtIn);
       return own.firstOrNull?.id.account;
     } on ConfdbException {
       return null;
     }
-  }
-
-  /// `snapcraft whoami`: exit 0 with `key: value` lines when logged in,
-  /// non-zero with "No credentials found" when not.
-  @override
-  Future<StoreAccount> storeAccount() async {
-    final ProcessResult r;
-    try {
-      r = await Process.run(snapcraftCommand, ['whoami']).timeout(const Duration(seconds: 30));
-    } on ProcessException {
-      return const StoreAccount.unavailable(detail: 'snapcraft isn’t installed.');
-    } on TimeoutException {
-      return const StoreAccount.unavailable(detail: '`snapcraft whoami` didn’t answer.');
-    }
-    final out = '${r.stdout}';
-    if (r.exitCode != 0) {
-      final err = '${r.stderr}\n$out'
-          .split('\n')
-          .map((l) => l.trim())
-          .where((l) => l.isNotEmpty && !l.startsWith('Full execution log'))
-          .firstOrNull;
-      return StoreAccount.loggedOut(detail: err);
-    }
-    final fields = <String, String>{
-      for (final line in out.split('\n'))
-        if (line.contains(':')) line.substring(0, line.indexOf(':')).trim().toLowerCase(): line.substring(line.indexOf(':') + 1).trim(),
-    };
-    String? field(String k) => (fields[k]?.isEmpty ?? true) ? null : fields[k];
-    return StoreAccount(login: StoreLogin.loggedIn, username: field('username'), email: field('email'), accountId: field('id'));
   }
 
   /// `snap known account account-id=<id>`, then `--remote`.
@@ -627,6 +600,138 @@ class SnapdRepository implements ConfdbRepository {
     return [for (final k in keys.cast<Map>()) SigningKey(name: k['name'] as String, sha3384: k['sha3-384'] as String? ?? '')];
   }
 
+  @override
+  Future<Set<String>?> registeredStoreKeyDigests() async {
+    try {
+      final info = await store.accountInfo();
+      final keys = info['account_keys'] as List? ?? const [];
+      return {for (final k in keys.whereType<Map>()) if (k['public-key-sha3-384'] case final String sha) sha};
+    } on ConfdbException catch (e) {
+      if (e.kind == ConfdbErrorKind.signedOut || e.kind == ConfdbErrorKind.offline) return null;
+      rethrow;
+    }
+  }
+
+  /// Same keyring `snap create-key`/`snap sign` use
+  /// (`asserts.ensureGPGHomeDirectory`): `$SNAP_GNUPG_HOME`, else
+  /// `~/.snap/gnupg`.
+  String _gpgHomeDir() {
+    final override = Platform.environment['SNAP_GNUPG_HOME'];
+    if (override != null && override.isNotEmpty) return override;
+    final home = Platform.environment['HOME'];
+    if (home == null || home.isEmpty) {
+      throw const ConfdbException(r'No $HOME to find the GPG keyring in.');
+    }
+    return '$home/.snap/gnupg';
+  }
+
+  /// Same binary selection `snap create-key`/`snap sign` use
+  /// (`asserts.findGPGCommand`): `$SNAP_GNUPG_CMD`, else `gpg1`, else `gpg`.
+  Future<String> _gpgCommand() async {
+    final override = Platform.environment['SNAP_GNUPG_CMD'];
+    if (override != null && override.isNotEmpty) return override;
+    for (final candidate in ['gpg1', 'gpg']) {
+      try {
+        await Process.run(candidate, ['--version']);
+        return candidate;
+      } on ProcessException {
+        // Not installed: try the next candidate.
+      }
+    }
+    throw const ConfdbException('Neither `gpg1` nor `gpg` is installed.', command: 'sudo apt install gnupg');
+  }
+
+  static final _validKeyName = RegExp(r'^(?:[a-z0-9]+-?)*[a-z](?:-?[a-z0-9])*$');
+
+  /// Validates a just-created key's algorithm, bit-length and uid against
+  /// snapd's own invariants (RSA, ≥4096 bits, uid exactly [name]), failing
+  /// loudly if gpg's defaults ever drift from what `snap sign` requires,
+  /// instead of silently producing a key snapd (or the Store) would refuse.
+  Future<void> _checkSpec(String homedir, String gpgCommand, String name) async {
+    final r = await Process.run(gpgCommand, ['--homedir', homedir, '--with-colons', '--list-secret-keys', name]);
+    if (r.exitCode != 0) {
+      throw ConfdbException('Created `$name`, but gpg couldn’t read it back: ${r.stderr}'.trim());
+    }
+    final lines = '${r.stdout}'.split('\n');
+    final sec = lines.firstWhere((l) => l.startsWith('sec:'), orElse: () => '').split(':');
+    final uid = lines.firstWhere((l) => l.startsWith('uid:'), orElse: () => '').split(':');
+    final algo = sec.length > 3 ? sec[3] : '';
+    final bits = sec.length > 2 ? int.tryParse(sec[2]) ?? 0 : 0;
+    final realUid = uid.length > 9 ? uid[9] : '';
+    if (algo != '1' || bits < 4096 || realUid != name) {
+      throw ConfdbException(
+        'The key gpg created doesn’t match what `snap sign` requires (RSA ≥4096 bits, '
+        'uid `$name`); got algorithm `$algo`, $bits bits, uid `$realUid`. This usually '
+        'means gpg’s defaults have drifted — delete the key and check your gpg version.',
+        command: 'gpg --homedir $homedir --with-colons --list-secret-keys $name',
+      );
+    }
+  }
+
+  @override
+  Future<SigningKey> createSigningKey(String name) async {
+    if (!_validKeyName.hasMatch(name)) {
+      throw const ConfdbException('Key names must be lowercase letters, digits and dashes.');
+    }
+    if ((await signingKeys()).any((k) => k.name == name)) {
+      throw ConfdbException('A key named `$name` already exists. Pick another name.');
+    }
+
+    final homedir = _gpgHomeDir();
+    await Directory(homedir).create(recursive: true);
+    try {
+      await Process.run('chmod', ['700', homedir]);
+    } on ProcessException {
+      // Best-effort: gpg itself still refuses a world-readable homedir.
+    }
+    final gpgCommand = await _gpgCommand();
+
+    // snapd's own key spec (`asserts.GPGKeypairManager.parametersForGenerate`):
+    // RSA-4096, SHA512 digest preference, uid = the key name. No `Passphrase:`
+    // line, so gpg-agent prompts for one through the system's pinentry — the
+    // same channel `snap sign`/`snap create-key` already use; it never passes
+    // through this app.
+    const fixedCreationSeconds = 1451606400; // matches asserts.v1FixedTimestamp
+    final params = '\nKey-Type: RSA\nKey-Length: 4096\nName-Real: $name\nCreation-Date: seconds=$fixedCreationSeconds\nPreferences: SHA512\n';
+
+    final proc = await Process.start(gpgCommand, ['--homedir', homedir, '-q', '--no-auto-check-trustdb', '--batch', '--gen-key']);
+    proc.stdin.write(params);
+    await proc.stdin.close();
+    final err = await proc.stderr.transform(utf8.decoder).join();
+    if (await proc.exitCode != 0) {
+      throw ConfdbException('gpg couldn’t create the key: ${err.trim()}', command: '$gpgCommand --homedir $homedir --batch --gen-key');
+    }
+
+    await _checkSpec(homedir, gpgCommand, name);
+
+    _notify();
+    final created = (await signingKeys()).where((k) => k.name == name).firstOrNull;
+    if (created == null) {
+      throw ConfdbException('gpg created `$name`, but `snap keys` doesn’t see it yet.', command: 'snap keys');
+    }
+    return created;
+  }
+
+  @override
+  Future<void> registerKey(SigningKey key) async {
+    final account = await developerAccount();
+    if (account == null) {
+      throw const ConfdbException(
+        'Log in to snapcraft first, so the key can be registered to your account.',
+        command: 'snapcraft login',
+      );
+    }
+    final r = await Process.run(snapCommand, ['export-key', '--account=$account', key.name]);
+    if (r.exitCode != 0) {
+      throw ConfdbException(
+        '`snap export-key` failed: ${r.stderr}'.trim(),
+        command: 'snap export-key --account=$account ${key.name}',
+      );
+    }
+    await store.registerSigningKey(r.stdout as String);
+    _notify();
+  }
+
   /// The Store's latest revision of [id], when signed in and it says.
   Future<int?> _storeRevision(SchemaId id) async {
     try {
@@ -689,6 +794,9 @@ class SnapdRepository implements ConfdbRepository {
   @override
   Future<StoreSession> storeLogin({required String email, required String password, String? otp, StoreEnv env = StoreEnv.production}) =>
       store.login(email: email, password: password, otp: otp, env: env);
+
+  @override
+  Future<void> storeCancelLogin() => store.cancelLogin();
 
   @override
   Future<void> storeLogout() => store.logout();

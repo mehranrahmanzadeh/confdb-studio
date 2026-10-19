@@ -19,7 +19,6 @@ class FakeScenario {
     this.snapdUnreachableOnce = false,
     this.noSchemas = false,
     this.loadViewFailsOnce = false,
-    this.loggedOut = false,
     this.noKeys = false,
     this.noCustodian = false,
     this.storeSignedOut = false,
@@ -34,7 +33,6 @@ class FakeScenario {
       snapdUnreachableOnce: flags.contains('unreachable'),
       noSchemas: flags.contains('no-schemas'),
       loadViewFailsOnce: flags.contains('load-view-fails'),
-      loggedOut: flags.contains('logged-out'),
       noKeys: flags.contains('no-keys'),
       noCustodian: flags.contains('no-custodian'),
       storeSignedOut: flags.contains('store-logged-out'),
@@ -53,9 +51,6 @@ class FakeScenario {
 
   /// The first read of an ephemeral value fails in the custodian's load-view hook.
   final bool loadViewFailsOnce;
-
-  /// snapcraft has no credentials.
-  final bool loggedOut;
 
   /// `snap keys` lists nothing.
   final bool noKeys;
@@ -85,6 +80,8 @@ class FakeConfdbRepository implements ConfdbRepository {
       _storeSchemas.addAll(sampleStoreSchemas);
     }
     if (!scenario.storeSignedOut) _store = _sampleSession;
+    _keys = scenario.noKeys ? [] : List.of(signingKeysSeed);
+    _registeredKeyDigests = {signingKeysSeed.first.sha3384};
     _values.addAll(seedValues());
     _snaps.addAll([
       for (final s in seedSnaps())
@@ -102,6 +99,11 @@ class FakeConfdbRepository implements ConfdbRepository {
   final _values = <SchemaId, Map<String, Object?>>{};
   final _snaps = <SnapInfo>[];
   final _storeSchemas = <ConfdbSchema>[];
+  late final List<SigningKey> _keys;
+
+  /// `public-key-sha3-384` digests the Store already has — seeded with just
+  /// `acme-release`, so `acme-dev` demonstrates the "not registered" state.
+  late final Set<String> _registeredKeyDigests;
   StoreSession? _store;
   static const _sampleSession = StoreSession(
     env: StoreEnv.production,
@@ -145,14 +147,6 @@ class FakeConfdbRepository implements ConfdbRepository {
 
   @override
   Future<String?> developerAccount() async => acmeAccountId;
-
-  @override
-  Future<StoreAccount> storeAccount() async {
-    await _wait(0.3);
-    if (scenario.loggedOut) return const StoreAccount.loggedOut();
-    // Placeholder identity for the sample data.
-    return const StoreAccount(login: StoreLogin.loggedIn, username: 'acme', email: 'dev@acme.example', accountId: acmeAccountId);
-  }
 
   @override
   Future<AccountInfo?> account(String accountId) async {
@@ -508,7 +502,35 @@ class FakeConfdbRepository implements ConfdbRepository {
   @override
   Future<List<SigningKey>> signingKeys() async {
     await _wait(0.5);
-    return scenario.noKeys ? const [] : signingKeysSeed;
+    return List.of(_keys);
+  }
+
+  @override
+  Future<Set<String>?> registeredStoreKeyDigests() async {
+    await _wait(0.3);
+    if (scenario.storeOffline) return null;
+    if (_store == null) return null;
+    return Set.of(_registeredKeyDigests);
+  }
+
+  @override
+  Future<SigningKey> createSigningKey(String name) async {
+    await _wait(2.5); // stands in for gpg generating entropy + the pinentry prompt
+    if (_keys.any((k) => k.name == name)) {
+      throw ConfdbException('A key named `$name` already exists. Pick another name.');
+    }
+    final key = SigningKey(name: name, sha3384: name.hashCode.toRadixString(16).padLeft(96, '0').substring(0, 96));
+    _keys.add(key);
+    _notify();
+    return key;
+  }
+
+  @override
+  Future<void> registerKey(SigningKey key) async {
+    await _wait(1.5);
+    _storeReady();
+    _registeredKeyDigests.add(key.sha3384);
+    _notify();
   }
 
   @override
@@ -588,6 +610,9 @@ class FakeConfdbRepository implements ConfdbRepository {
     }
     return _store = StoreSession(env: env, username: _sampleSession.username, email: email, accountId: acmeAccountId);
   }
+
+  @override
+  Future<void> storeCancelLogin() async {}
 
   @override
   Future<void> storeLogout() async {

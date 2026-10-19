@@ -92,6 +92,11 @@ class SnapStoreClient {
     }
   }
 
+  /// Abandons an in-progress [login] the caller isn't going to finish
+  /// (e.g. the dialog was closed while waiting on a 2FA code), so the next
+  /// [login] attempt starts clean instead of colliding with it.
+  Future<void> cancelLogin() => authClient.cancelLogin();
+
   static ConfdbException _error(int status, String body) {
     String? message;
     try {
@@ -174,4 +179,15 @@ class SnapStoreClient {
     final json = await _request('POST', _api, body: assertion, contentType: 'application/x.ubuntu.assertion', ok: const {200, 201});
     return _assertions(json).firstOrNull;
   }
+
+  // -------------------------------------------------------- account keys
+
+  /// The signed-in account's details, as the raw `{account_id, account_keys,
+  /// stores, snaps}` document (`GET /dev/api/account`).
+  Future<Map<String, Object?>> accountInfo() => authClient.accountInfo();
+
+  /// Registers a serialized account-key-request assertion — `snap
+  /// export-key`'s output — to the signed-in account
+  /// (`POST /dev/api/account/account-key`).
+  Future<void> registerSigningKey(String accountKeyRequest) => authClient.registerKey(accountKeyRequest);
 }

@@ -42,7 +42,6 @@ class _ConfdbStudioAppState extends State<ConfdbStudioApp> {
     });
     _refreshStatus();
     _resolveAccounts();
-    _app.refreshStoreAccount(widget.repository);
     _store.refresh().then((_) => _accounts.resolve([for (final s in _store.schemas ?? const <ConfdbSchema>[]) s.id.account]));
     widget.repository.developerAccount().then((a) {
       if (a != null) {

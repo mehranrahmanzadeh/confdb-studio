@@ -55,14 +55,14 @@ final shots = <Shot>[
   Shot(
     'account-logged-out',
     const OverviewRoute(),
-    scenario: const FakeScenario(latency: Duration.zero, loggedOut: true),
+    scenario: const FakeScenario(latency: Duration.zero, storeSignedOut: true),
     act: (t) async => t.tap(find.text('Log in')),
   ),
   const Shot(
     'account-logged-out-compact',
     OverviewRoute(),
     size: compact,
-    scenario: FakeScenario(latency: Duration.zero, loggedOut: true),
+    scenario: FakeScenario(latency: Duration.zero, storeSignedOut: true),
   ),
   Shot(
     'account-logged-in',
@@ -260,7 +260,7 @@ final shots = <Shot>[
   Shot(
     'sign-no-keys',
     const SchemaEditorRoute(networkId),
-    scenario: const FakeScenario(latency: Duration.zero, noKeys: true, loggedOut: true),
+    scenario: const FakeScenario(latency: Duration.zero, noKeys: true, storeSignedOut: true),
     act: (t) async {
       await t.tap(find.textContaining('Add wifi.signal'));
       await t.pump(const Duration(milliseconds: 500));

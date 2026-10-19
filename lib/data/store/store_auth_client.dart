@@ -64,6 +64,11 @@ abstract interface class StoreAuthClient {
   /// code and [otp] is missing or wrong.
   Future<StoreAuthSession> login({required StoreEnv env, required String email, required String password, String? otp});
 
+  /// Abandons an in-progress [login] left waiting on a 2FA code (e.g. the
+  /// user closed the dialog instead of entering one). Safe to call when
+  /// nothing is in progress.
+  Future<void> cancelLogin();
+
   /// Validates and activates a previously saved [StoreAuthSession.credentialsJson].
   Future<StoreAuthSession> restoreCredentials({required StoreEnv env, required String credentialsJson});
 
@@ -72,6 +77,16 @@ abstract interface class StoreAuthClient {
 
   /// `GET /api/v2/tokens/whoami` with the active credentials.
   Future<StoreAccountInfo> whoami();
+
+  /// `GET /dev/api/account`: the signed-in account's details, as the raw
+  /// JSON document — including `account_keys[].{name, public-key-sha3-384}`,
+  /// the account-keys already registered to it.
+  Future<Map<String, Object?>> accountInfo();
+
+  /// `POST /dev/api/account/account-key`: registers a serialized
+  /// `account-key-request` assertion — the output of `snap export-key` on
+  /// the host — to the signed-in account.
+  Future<void> registerKey(String accountKeyRequest);
 
   /// An arbitrary authenticated request, e.g.
   /// `request('GET', '/api/v2/confdb-schemas')`. Returns the raw response

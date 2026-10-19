@@ -4,37 +4,36 @@ import '../data/models.dart';
 import '../state/app_scope.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
-import '../widgets/cli_disclosure.dart';
 import '../widgets/code_text.dart';
 import '../widgets/common.dart';
 import '../widgets/copyable_text.dart';
 import '../widgets/status_badge.dart';
 import '../screens/store/store_login_dialog.dart';
 
-/// Bottom of the rail: the Snap Store (snapcraft) account. Warns when
-/// snapcraft isn't logged in, because signing schemas needs a registered key.
+/// Bottom of the rail: the Snap Store account (via the vendored Rust
+/// backend). Warns when it isn't signed in, because signing schemas needs a
+/// key registered to that account.
 class AccountButton extends StatelessWidget {
   const AccountButton({super.key, required this.compact});
   final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final app = context.app;
+    final store = context.store;
     return ListenableBuilder(
-      listenable: app,
+      listenable: store,
       builder: (context, _) {
-        final account = app.storeAccount;
+        final session = store.session;
         final c = context.colors;
         final s = context.status;
-        final warn = account != null && !account.isLoggedIn;
-        final (String label, String tooltip) = switch (account?.login) {
-          null => ('Account', 'Checking snapcraft login…'),
-          StoreLogin.loggedIn => (
-            account!.username ?? 'Account',
-            'Logged in to snapcraft as ${account.username ?? account.email ?? 'unknown'}',
+        final warn = session != null && !session.signedIn;
+        final (String label, String tooltip) = switch (session) {
+          null => ('Account', 'Checking Snap Store login…'),
+          _ when session.signedIn => (
+            session.username ?? 'Account',
+            'Signed in to the Snap Store as ${session.username ?? session.email ?? 'unknown'}',
           ),
-          StoreLogin.loggedOut => ('Log in', 'Not logged in to snapcraft: you can’t sign schemas'),
-          StoreLogin.unavailable => ('Snapcraft', 'snapcraft isn’t available: you can’t sign schemas'),
+          _ => ('Sign in', 'Not signed in to the Snap Store: you can’t sign schemas'),
         };
 
         final avatar = Stack(
@@ -44,7 +43,7 @@ class AccountButton extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(color: c.surfaceContainerHigh, shape: BoxShape.circle),
-              child: Icon(Icons.person_outline, color: account?.isLoggedIn ?? false ? c.onSurface : c.onSurfaceVariant),
+              child: Icon(Icons.person_outline, color: session?.signedIn ?? false ? c.onSurface : c.onSurfaceVariant),
             ),
             if (warn)
               Positioned(
@@ -74,12 +73,12 @@ class AccountButton extends StatelessWidget {
               side: WidgetStatePropertyAll(BorderSide(color: c.outlineVariant)),
               shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
             ),
-            menuChildren: [_AccountPanel(account: account, checking: app.checkingStore)],
+            menuChildren: const [_AccountPanel()],
             builder: (context, controller, _) => Tooltip(
               message: tooltip,
               child: Semantics(
                 button: true,
-                label: 'Snapcraft account. $tooltip',
+                label: 'Snap Store account. $tooltip',
                 excludeSemantics: true,
                 child: InkWell(
                   mouseCursor: WidgetStateMouseCursor.clickable,
@@ -121,93 +120,23 @@ class AccountButton extends StatelessWidget {
 }
 
 class _AccountPanel extends StatelessWidget {
-  const _AccountPanel({required this.account, required this.checking});
-  final StoreAccount? account;
-  final bool checking;
+  const _AccountPanel();
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    final a = account;
-    final check = SecondaryButton(
-      label: 'Check again',
-      icon: AppIcons.retry,
-      busy: checking,
-      onPressed: () => context.app.refreshStoreAccount(context.repo),
-    );
-    final muted = context.text.bodyMedium?.copyWith(color: c.onSurfaceVariant);
-
-    final List<Widget> body;
-    if (a == null) {
-      body = [Text('Checking snapcraft login…', style: muted), const SizedBox(height: 12), const LinearProgressIndicator()];
-    } else if (a.isLoggedIn) {
-      body = [
-        Text('snapcraft · signing keys', style: context.text.titleSmall),
-        const SizedBox(height: 12),
-        DetailList(
-          labelWidth: 96,
-          rows: [
-            if (a.username != null) ('Username', MonoText(a.username!)),
-            if (a.email != null) ('Email', Text(a.email!)),
-            if (a.accountId != null) ('Account ID', CopyableText(a.accountId!, what: 'account ID', alias: false)),
-          ],
-        ),
-        const SizedBox(height: 12),
-        CodeText(
-          'Schemas you sign use this account ID, with a key registered to it (`snap keys`).',
-          style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
-        ),
-        const SizedBox(height: 12),
-        const CliDisclosure('snapcraft whoami'),
-        const SizedBox(height: 8),
-        check,
-      ];
-    } else {
-      final unavailable = a.login == StoreLogin.unavailable;
-      body = [
-        InlineMessage(
-          kind: MessageKind.warning,
-          padding: const EdgeInsets.all(12),
-          title: unavailable ? 'Warning · snapcraft isn’t available' : 'Warning · not logged in to snapcraft',
-          body: Text('You can create and test drafts, but signing a schema needs a key registered to your Snap Store developer account.'),
-        ),
-        if (a.detail != null) ...[
-          const SizedBox(height: 8),
-          CodeText(a.detail!, style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
-        ],
-        const SizedBox(height: 16),
-        Text(unavailable ? 'Install snapcraft, then log in' : 'Log in from a terminal', style: context.text.titleSmall),
-        const SizedBox(height: 8),
-        if (unavailable) const CliDisclosure('sudo snap install snapcraft --classic', initiallyOpen: true),
-        const CliDisclosure('snapcraft login', initiallyOpen: true),
-        const SizedBox(height: 12),
-        Text('First time signing? Create and register a key once:', style: muted),
-        const SizedBox(height: 4),
-        const CliDisclosure('snap create-key <name> && snapcraft register-key <name>'),
-        const SizedBox(height: 12),
-        check,
-      ];
-    }
-
     return Semantics(
       container: true,
-      label: 'Snapcraft account',
+      label: 'Snap Store account',
       child: SizedBox(
         width: 380,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [const _StoreSection(), const Divider(height: 32), ...body],
-          ),
-        ),
+        child: Padding(padding: const EdgeInsets.all(16), child: _StoreSection()),
       ),
     );
   }
 }
 
-/// The app's own Snap Store login (via the vendored Rust backend), for listing and pushing schemas.
+/// The app's own Snap Store login (via the vendored Rust backend), for listing and pushing schemas,
+/// and for registering and checking the signing keys schemas are signed with.
 class _StoreSection extends StatelessWidget {
   const _StoreSection();
 
@@ -240,7 +169,11 @@ class _StoreSection extends StatelessWidget {
             children: [
               title,
               const SizedBox(height: 8),
-              Text('Sign in to see the schemas registered to your account and push new revisions.', style: muted),
+              Text(
+                'Sign in to see the schemas registered to your account, push new revisions, and '
+                'register signing keys.',
+                style: muted,
+              ),
               if (session.detail != null) ...[const SizedBox(height: 8), CodeText(session.detail!, style: muted)],
               const SizedBox(height: 12),
               PrimaryButton(label: 'Sign in', icon: AppIcons.signIn, onPressed: () => showStoreLoginDialog(context)),
@@ -258,6 +191,7 @@ class _StoreSection extends StatelessWidget {
                 if (session.username != null) ('Username', MonoText(session.username!)),
                 if (session.email != null) ('Email', Text(session.email!)),
                 ('Store', Text(session.env!.host)),
+                if (session.accountId != null) ('Account ID', CopyableText(session.accountId!, what: 'account ID', alias: false)),
               ],
             ),
             const SizedBox(height: 12),
@@ -275,3 +209,4 @@ class _StoreSection extends StatelessWidget {
     );
   }
 }
+

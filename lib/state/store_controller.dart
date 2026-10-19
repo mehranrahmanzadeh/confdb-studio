@@ -85,6 +85,21 @@ class StoreController extends ChangeNotifier {
     await reloadSchemas();
   }
 
+  /// Reflects a [ConfdbErrorKind.signedOut] error seen elsewhere (e.g. a 401
+  /// registering a signing key) without an extra round-trip to re-check:
+  /// the persisted macaroon is known stale, so the rail should offer "Log
+  /// in" right away.
+  void markSignedOut(String detail) {
+    _session = StoreSession.signedOut(detail: detail);
+    _schemas = null;
+    notifyListeners();
+  }
+
+  /// Abandons an in-progress [login] the caller isn't going to finish
+  /// (e.g. the dialog's Cancel button was pressed while waiting on a 2FA
+  /// code), so the next attempt starts clean.
+  Future<void> cancelLogin() => _repo.storeCancelLogin();
+
   Future<void> logout() async {
     await _repo.storeLogout();
     _session = const StoreSession.signedOut();

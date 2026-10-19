@@ -60,7 +60,25 @@ class FakeStoreAuthClient implements StoreAuthClient {
   Future<void> logout() async => loggedOutCalled = true;
 
   @override
+  Future<void> cancelLogin() async {}
+
+  @override
   Future<StoreAccountInfo> whoami() async => throw UnimplementedError('whoami is unused by SnapStoreClient');
+
+  Map<String, Object?>? accountInfoResult;
+  String? registeredKeyAssertion;
+
+  @override
+  Future<Map<String, Object?>> accountInfo() async {
+    calls.add({'op': 'accountInfo'});
+    return accountInfoResult ?? const {};
+  }
+
+  @override
+  Future<void> registerKey(String accountKeyRequest) async {
+    calls.add({'op': 'registerKey', 'accountKeyRequest': accountKeyRequest});
+    registeredKeyAssertion = accountKeyRequest;
+  }
 
   @override
   Future<StoreApiResponse> request(String method, String path, {String? body, String? contentType}) {
@@ -356,12 +374,17 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Sign & acknowledge'));
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('acme-release'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sign & Acknowledge'));
     await tester.pumpAndSettle();
 
     final push = find.widgetWithText(CheckboxListTile, 'Push to the Snap Store');
     expect(tester.widget<CheckboxListTile>(push).value, isTrue, reason: 'on when signed in');
     expect(find.textContaining('Registers revision 5'), findsOneWidget);
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Sign and acknowledge'));
     await tester.tap(find.widgetWithText(FilledButton, 'Sign and acknowledge'));
     await tester.pumpAndSettle();
 
