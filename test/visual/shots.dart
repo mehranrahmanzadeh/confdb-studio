@@ -56,7 +56,7 @@ final shots = <Shot>[
     'account-logged-out',
     const OverviewRoute(),
     scenario: const FakeScenario(latency: Duration.zero, storeSignedOut: true),
-    act: (t) async => t.tap(find.text('Log in')),
+    act: (t) async => t.tap(find.descendant(of: find.byType(AccountButton), matching: find.text('Sign in'))),
   ),
   const Shot(
     'account-logged-out-compact',
@@ -194,7 +194,13 @@ final shots = <Shot>[
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
-      await t.tap(find.text('Sign & acknowledge').last);
+      await t.tap(find.text('Next'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
+      await t.tap(find.text('acme-release'));
+      await t.pump(const Duration(milliseconds: 100));
+      await t.tap(find.text('Sign & Acknowledge').last);
     },
   ),
   const Shot('editor-loading', SchemaEditorRoute(networkId), scenario: FakeScenario(latency: Duration(seconds: 3))),
@@ -268,7 +274,10 @@ final shots = <Shot>[
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
-      await t.tap(find.text('Sign & acknowledge').last);
+      await t.tap(find.text('Next'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
     },
   ),
   Shot(
@@ -282,7 +291,13 @@ final shots = <Shot>[
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
-      await t.tap(find.text('Sign & acknowledge').last);
+      await t.tap(find.text('Next'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
+      await t.tap(find.text('acme-release'));
+      await t.pump(const Duration(milliseconds: 100));
+      await t.tap(find.text('Sign & Acknowledge').last);
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
@@ -300,7 +315,13 @@ final shots = <Shot>[
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
-      await t.tap(find.text('Sign & acknowledge').last);
+      await t.tap(find.text('Next'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
+      await t.tap(find.text('acme-release'));
+      await t.pump(const Duration(milliseconds: 100));
+      await t.tap(find.text('Sign & Acknowledge').last);
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
@@ -394,7 +415,7 @@ final shots = <Shot>[
     'account-store-signed-out',
     const OverviewRoute(),
     scenario: const FakeScenario(latency: Duration.zero, storeSignedOut: true),
-    act: (t) async => t.tap(find.descendant(of: find.byType(AccountButton), matching: find.text('acme'))),
+    act: (t) async => t.tap(find.descendant(of: find.byType(AccountButton), matching: find.text('Sign in'))),
   ),
   Shot(
     'sign-store-signed-out',
@@ -407,7 +428,10 @@ final shots = <Shot>[
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
-      await t.tap(find.text('Sign & acknowledge').last);
+      await t.tap(find.text('Next'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
     },
   ),
   const Shot(
