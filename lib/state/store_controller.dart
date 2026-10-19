@@ -4,7 +4,7 @@ import '../data/confdb_repository.dart';
 import '../data/models.dart';
 import '../domain/store_sync.dart';
 
-/// The app's Snap Store side: the surl login and the account's registered
+/// The app's Snap Store side: the login and the account's registered
 /// schemas, kept for the session so screens don't each ask the network.
 class StoreController extends ChangeNotifier {
   StoreController(this._repo);

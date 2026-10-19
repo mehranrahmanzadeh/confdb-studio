@@ -207,7 +207,7 @@ class _AccountPanel extends StatelessWidget {
   }
 }
 
-/// The app's own Snap Store login (surl), for listing and pushing schemas.
+/// The app's own Snap Store login (via the vendored Rust backend), for listing and pushing schemas.
 class _StoreSection extends StatelessWidget {
   const _StoreSection();
 

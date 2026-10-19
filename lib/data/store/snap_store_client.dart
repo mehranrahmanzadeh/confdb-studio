@@ -5,96 +5,93 @@ import 'dart:io';
 import '../../domain/schema_codec.dart';
 import '../app_data.dart';
 import '../models.dart';
+import 'rust_auth_client.dart';
+import 'store_auth_client.dart';
 
 /// The Snap Store's confdb-schemas API (`/api/v2/confdb-schemas` on the
-/// dashboard), called through `tool/store_helper.py`, which signs requests
-/// with surl's stored macaroons.
+/// dashboard), reached through the vendored `rust/` `snapstore-auth` crate
+/// (see [RustAuthClient]), which handles Ubuntu One SSO login, 2FA, and
+/// macaroon-signed requests.
 ///
-/// Where things are, from the environment (the snap sets them):
-/// * `CONFDB_STORE_PYTHON` – a Python with surl importable (default `python3`).
-/// * `CONFDB_STORE_PYTHONPATH` – where surl's venv keeps its packages.
-/// * `CONFDB_STORE_HELPER` – the helper script (default `tool/store_helper.py`).
-/// * `CONFDB_STORE_AUTH` – the saved login (default `store.surl` under
-///   [appDataDir]), readable only by the user.
+/// The saved login is kept in `store.json` under [appDataPath] (readable
+/// only by the user), replacing the old surl-based `store.surl`.
 class SnapStoreClient {
-  SnapStoreClient({String? python, String? helper, String? pythonPath, String? authFile, this.timeout = const Duration(seconds: 90)})
-    : python = python ?? _env('CONFDB_STORE_PYTHON') ?? 'python3',
-      helper = helper ?? _env('CONFDB_STORE_HELPER') ?? 'tool/store_helper.py',
-      pythonPath = pythonPath ?? _env('CONFDB_STORE_PYTHONPATH'),
-      authFile = authFile ?? _env('CONFDB_STORE_AUTH') ?? appDataPath('store.surl');
+  SnapStoreClient({StoreAuthClient? authClient, String? authFile})
+    : authClient = authClient ?? RustAuthClient(),
+      authFile = authFile ?? appDataPath('store.json');
 
-  final String python;
-  final String helper;
-  final String? pythonPath;
+  final StoreAuthClient authClient;
   final String authFile;
-  final Duration timeout;
-
-  static String? _env(String name) {
-    final v = Platform.environment[name];
-    return v == null || v.isEmpty ? null : v;
-  }
 
   static const _api = '/api/v2/confdb-schemas';
 
-  /// Runs the helper; returns its `{status, body}` or throws its error.
-  Future<({int status, String body, StoreEnv env})> _run(List<String> args, {String? stdin}) async {
-    final Process proc;
+  /// `{env, credentials_json}` from [authFile], or `null` when there's no
+  /// saved login.
+  Map<String, Object?>? _readSaved() {
+    final file = File(authFile);
+    if (!file.existsSync()) return null;
     try {
-      proc = await Process.start(
-        python,
-        [helper, ...args],
-        environment: {
-          'CONFDB_STORE_AUTH': authFile,
-          'PYTHONNOUSERSITE': '1',
-          // Empty counts as unset: don't let the host's Python home leak in.
-          'PYTHONHOME': '',
-          'PYTHONPATH': ?pythonPath,
-        },
-      );
-    } on ProcessException catch (e) {
-      throw ConfdbException('Couldn’t run the Snap Store helper (`$python`): ${e.message}', kind: ConfdbErrorKind.unsupported);
+      final json = jsonDecode(file.readAsStringSync());
+      return json is Map ? json.cast<String, Object?>() : null;
+    } on FormatException {
+      return null;
     }
-    proc.stdin.write(stdin ?? '');
-    await proc.stdin.close();
-    final out = proc.stdout.transform(utf8.decoder).join();
-    final err = proc.stderr.transform(utf8.decoder).join();
-    final int code;
-    try {
-      code = await proc.exitCode.timeout(timeout);
-    } on TimeoutException {
-      proc.kill();
-      throw const ConfdbException('The Snap Store didn’t answer in time.', kind: ConfdbErrorKind.offline);
-    }
-    final Map result;
-    try {
-      result = jsonDecode((await out).trim()) as Map;
-    } on Object {
-      final detail = (await err).trim().split('\n').where((l) => l.trim().isNotEmpty).lastOrNull;
-      final missing = detail != null && detail.contains('ModuleNotFoundError');
-      throw ConfdbException(
-        missing
-            ? 'surl isn’t available to the Snap Store helper ($detail).'
-            : 'The Snap Store helper failed${code == 0 ? '' : ' (exit $code)'}${detail == null ? '.' : ': $detail'}',
-        kind: ConfdbErrorKind.unsupported,
-      );
-    }
-    final error = result['error'];
-    if (error != null) {
-      throw ConfdbException('$error', kind: _kind('${result['code']}'));
-    }
-    return (status: result['status'] as int? ?? 0, body: result['body'] as String? ?? '', env: StoreEnv.parse(result['store'] as String?));
   }
 
-  static ConfdbErrorKind _kind(String code) => switch (code) {
-    'not-logged-in' => ConfdbErrorKind.signedOut,
-    'twofactor-required' => ConfdbErrorKind.twoFactorRequired,
-    'offline' => ConfdbErrorKind.offline,
-    'invalid-credentials' || 'twofactor-failed' => ConfdbErrorKind.permissionDenied,
-    _ => ConfdbErrorKind.other,
-  };
+  Future<void> _save(StoreEnv env, String credentialsJson) async {
+    final file = File(authFile);
+    await file.parent.create(recursive: true);
+    await file.writeAsString(jsonEncode({'env': env.name, 'credentials_json': credentialsJson}));
+    try {
+      await Process.run('chmod', ['600', authFile]);
+    } on ProcessException {
+      // Best-effort: the file still works, just without the tightened mode.
+    }
+  }
 
-  /// A Store answer that isn't a success, as a [ConfdbException]. The Store
-  /// reports problems as `{"error-list": [{"code", "message"}]}`.
+  Future<void> _forget() async {
+    final file = File(authFile);
+    if (file.existsSync()) await file.delete();
+  }
+
+  /// The saved login, checked with the Store; signed out when there is none
+  /// or the Store rejects it.
+  Future<StoreSession> session() async {
+    final saved = _readSaved();
+    if (saved == null) return const StoreSession.signedOut();
+    final env = StoreEnv.parse(saved['env'] as String?);
+    final credentialsJson = saved['credentials_json'] as String? ?? '';
+    try {
+      final restored = await authClient.restoreCredentials(env: env, credentialsJson: credentialsJson);
+      return _session(env, restored.account);
+    } on ConfdbException catch (e) {
+      if (e.kind == ConfdbErrorKind.signedOut) {
+        return StoreSession.signedOut(detail: 'The saved Snap Store login has expired. Sign in again.');
+      }
+      rethrow;
+    }
+  }
+
+  static StoreSession _session(StoreEnv env, StoreAccountInfo account) =>
+      StoreSession(env: env, username: account.username, email: account.email, accountId: account.id);
+
+  /// Ubuntu One login for [env]. Throws with [ConfdbErrorKind.twoFactorRequired]
+  /// when the account needs a one-time code and [otp] is missing.
+  Future<StoreSession> login({required String email, required String password, String? otp, StoreEnv env = StoreEnv.production}) async {
+    final result = await authClient.login(env: env, email: email, password: password, otp: otp);
+    await _save(env, result.credentialsJson);
+    return _session(env, result.account);
+  }
+
+  Future<void> logout() async {
+    await _forget();
+    try {
+      await authClient.logout();
+    } on ConfdbException {
+      // Best-effort: the saved login is already gone either way.
+    }
+  }
+
   static ConfdbException _error(int status, String body) {
     String? message;
     try {
@@ -120,43 +117,10 @@ class SnapStoreClient {
   }
 
   Future<Object?> _request(String method, String path, {String? body, String? contentType, Set<int> ok = const {200}}) async {
-    final r = await _run(['request', method, path, ?contentType], stdin: body);
+    final r = await authClient.request(method, path, body: body, contentType: contentType);
     if (!ok.contains(r.status)) throw _error(r.status, r.body);
     return r.body.trim().isEmpty ? null : jsonDecode(r.body);
   }
-
-  /// `/api/v2/tokens/whoami`: `{"account": {"username", "email", "id", …}}`.
-  static StoreSession _session(StoreEnv env, String body) {
-    final json = jsonDecode(body);
-    final account = json is Map ? json['account'] as Map? ?? const {} : const {};
-    String? field(String k) => '${account[k] ?? ''}'.trim().isEmpty ? null : '${account[k]}'.trim();
-    return StoreSession(env: env, username: field('username'), email: field('email'), accountId: field('id') ?? field('account-id'));
-  }
-
-  /// The saved login, checked with the Store; signed out when there is none
-  /// or the Store rejects it.
-  Future<StoreSession> session() async {
-    final ({int status, String body, StoreEnv env}) r;
-    try {
-      r = await _run(['whoami']);
-    } on ConfdbException catch (e) {
-      if (e.kind == ConfdbErrorKind.signedOut) return const StoreSession.signedOut();
-      rethrow;
-    }
-    if (r.status == 401) return const StoreSession.signedOut(detail: 'The saved Snap Store login has expired. Sign in again.');
-    if (r.status != 200) throw _error(r.status, r.body);
-    return _session(r.env, r.body);
-  }
-
-  /// Ubuntu One login for [env]. Throws with [ConfdbErrorKind.twoFactorRequired]
-  /// when the account needs a one-time code and [otp] is missing.
-  Future<StoreSession> login({required String email, required String password, String? otp, StoreEnv env = StoreEnv.production}) async {
-    final r = await _run(['login'], stdin: jsonEncode({'email': email, 'password': password, 'otp': ?otp, 'store': env.name}));
-    if (r.status != 200) throw _error(r.status, r.body);
-    return _session(r.env, r.body);
-  }
-
-  Future<void> logout() async => _run(['logout']);
 
   /// Every confdb-schema the signed-in account registered, at its latest
   /// revision.

@@ -34,7 +34,7 @@ class SnapdRepository implements ConfdbRepository {
 
   final SnapdTransport transport;
 
-  /// The Snap Store's confdb-schemas API, through surl.
+  /// The Snap Store's confdb-schemas API, through the vendored Rust backend.
   final SnapStoreClient store;
 
   /// The hooks a snap ships, or null when they can't be read.

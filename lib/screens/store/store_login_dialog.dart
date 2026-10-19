@@ -8,7 +8,7 @@ import '../../widgets/app_icons.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
 
-/// Signs in to the Snap Store (through surl) with an Ubuntu One account.
+/// Signs in to the Snap Store (through the vendored Rust backend) with an Ubuntu One account.
 /// Returns whether it signed in.
 Future<bool> showStoreLoginDialog(BuildContext context) async {
   final store = context.store;

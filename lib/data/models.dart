@@ -741,7 +741,7 @@ class StoreAccount {
 
 enum SignPhase { signing, pushing, acknowledging }
 
-/// Which Snap Store the app signs in to (surl's `-s`).
+/// Which Snap Store the app signs in to.
 enum StoreEnv {
   production('Production', 'dashboard.snapcraft.io'),
   staging('Staging', 'dashboard.staging.snapcraft.io');
@@ -753,7 +753,7 @@ enum StoreEnv {
   static StoreEnv parse(String? s) => s == 'staging' ? staging : production;
 }
 
-/// The app's own Snap Store login (through surl), used to list and register
+/// The app's own Snap Store login, used to list and register
 /// schemas in the Store. Separate from snapcraft's, which signing keys need.
 @immutable
 class StoreSession {
@@ -766,7 +766,7 @@ class StoreSession {
   final String? email;
   final String? accountId;
 
-  /// Why the session isn't usable, e.g. surl isn't installed.
+  /// Why the session isn't usable, e.g. the Snap Store backend isn't available.
   final String? detail;
 
   bool get signedIn => env != null;

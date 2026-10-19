@@ -65,7 +65,7 @@ abstract interface class ConfdbRepository {
 
   // ------------------------------------------------------------ Snap Store
 
-  /// The app's Snap Store login (surl), checked with the Store.
+  /// The app's Snap Store login, checked with the Store.
   Future<StoreSession> storeSession();
 
   /// Signs in to the Snap Store with an Ubuntu One account and saves the
