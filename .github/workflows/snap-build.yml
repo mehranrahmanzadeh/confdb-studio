@@ -1,0 +1,36 @@
+name: Snap build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snap-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the snap (amd64)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        uses: snapcore/action-build@v1
+        id: snapcraft
+
+      - name: Verify it installs
+        run: |
+          sudo snap install --classic --dangerous "${{ steps.snapcraft.outputs.snap }}"
+          snap info confdb-studio
+
+      - name: Upload the built snap
+        uses: actions/upload-artifact@v4
+        with:
+          name: confdb-studio-snap
+          path: ${{ steps.snapcraft.outputs.snap }}
+          retention-days: 7
