@@ -23,9 +23,12 @@ class StoragePane extends StatelessWidget {
     required this.onJson,
     required this.onStorage,
     required this.onAdd,
+    required this.onAddAlias,
     required this.onAddPlaceholder,
     required this.onEdit,
     required this.onDelete,
+    required this.onEditAlias,
+    required this.onDeleteAlias,
     required this.compact,
   });
 
@@ -34,15 +37,20 @@ class StoragePane extends StatelessWidget {
   final String? focusPath;
   final bool json;
   final ValueChanged<bool> onJson;
-  final ValueChanged<StorageNode> onStorage;
+  final void Function(StorageNode storage, Map<String, StorageNode> aliases) onStorage;
 
   /// Add a path inside the map at the given path (null: top level).
   final ValueChanged<String?> onAdd;
+
+  /// Create a new top-level alias.
+  final VoidCallback onAddAlias;
 
   /// Gives an empty map a placeholder (any key).
   final ValueChanged<String> onAddPlaceholder;
   final ValueChanged<String> onEdit;
   final ValueChanged<String> onDelete;
+  final ValueChanged<String> onEditAlias;
+  final ValueChanged<String> onDeleteAlias;
   final bool compact;
 
   @override
@@ -52,12 +60,27 @@ class StoragePane extends StatelessWidget {
       for (final i in issues)
         if (!i.isError && i.storagePath != null) i.storagePath!,
     };
+    final addMenu = MenuAnchor(
+      menuChildren: [
+        MenuItemButton(
+          leadingIcon: const Icon(AppIcons.add, size: 18),
+          onPressed: () => onAdd(null),
+          child: const Text('Add storage path'),
+        ),
+        MenuItemButton(leadingIcon: const Icon(AppIcons.add, size: 18), onPressed: onAddAlias, child: const Text('Create an alias')),
+      ],
+      builder: (context, controller, _) => IconButton(
+        tooltip: 'Add storage path or alias',
+        onPressed: () => controller.isOpen ? controller.close() : controller.open(),
+        icon: const Icon(AppIcons.add),
+      ),
+    );
     final header = Row(
       children: [
         Expanded(
           child: Semantics(header: true, child: Text('Storage', style: context.text.titleSmall)),
         ),
-        if (!json) IconButton(tooltip: 'Add storage path', onPressed: () => onAdd(null), icon: const Icon(AppIcons.add)),
+        if (!json) addMenu,
         const SizedBox(width: 4),
         SegmentedButton<bool>(
           segments: const [
@@ -71,10 +94,14 @@ class StoragePane extends StatelessWidget {
       ],
     );
     final body = json
-        ? _JsonEditor(storage: draft.storage, warnPaths: unexposed, onChanged: onStorage, expand: !compact)
+        ? _JsonEditor(storage: draft.storage, aliases: draft.aliases, warnPaths: unexposed, onChanged: onStorage, expand: !compact)
         : Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (draft.aliases.isNotEmpty) ...[
+                _AliasesSection(aliases: draft.aliases, onEdit: onEditAlias, onDelete: onDeleteAlias),
+                const SizedBox(height: 8),
+              ],
               _Tree(
                 draft: draft,
                 unexposed: unexposed,
@@ -104,7 +131,86 @@ class StoragePane extends StatelessWidget {
   }
 }
 
-class _Tree extends StatelessWidget {
+/// Lists top-level aliases (reusable types), each with its definition and
+/// edit/delete actions.
+class _AliasesSection extends StatelessWidget {
+  const _AliasesSection({required this.aliases, required this.onEdit, required this.onDelete});
+  final Map<String, StorageNode> aliases;
+  final ValueChanged<String> onEdit;
+  final ValueChanged<String> onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: c.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Semantics(header: true, child: Text('Aliases', style: context.text.labelLarge)),
+          const SizedBox(height: 4),
+          for (final e in aliases.entries)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(e.key, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500)),
+                            TypeChip(e.value.typeLabel),
+                          ],
+                        ),
+                        if (e.value.constraintSummary case final summary?)
+                          Text(
+                            summary,
+                            style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                  MenuAnchor(
+                    menuChildren: [
+                      MenuItemButton(
+                        leadingIcon: const Icon(AppIcons.edit, size: 18),
+                        onPressed: () => onEdit(e.key),
+                        child: const Text('Edit'),
+                      ),
+                      MenuItemButton(
+                        leadingIcon: const Icon(AppIcons.delete, size: 18),
+                        onPressed: () => onDelete(e.key),
+                        child: const Text('Delete'),
+                      ),
+                    ],
+                    builder: (context, controller, _) => IconButton(
+                      tooltip: 'Actions for alias ${e.key}',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => controller.isOpen ? controller.close() : controller.open(),
+                      icon: const Icon(Icons.more_vert, size: 18),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Tree extends StatefulWidget {
   const _Tree({
     required this.draft,
     required this.unexposed,
@@ -125,18 +231,38 @@ class _Tree extends StatelessWidget {
   final ValueChanged<String> onDelete;
 
   @override
+  State<_Tree> createState() => _TreeState();
+}
+
+/// Whether [path] is inside a collapsed ancestor, i.e. [ancestor] is a
+/// strict, segment-aligned prefix of it (`a.b` or `a[{n}]`, not `a.bc`).
+bool _isDescendant(String path, String ancestor) =>
+    path.length > ancestor.length && path.startsWith(ancestor) && (path[ancestor.length] == '.' || path[ancestor.length] == '[');
+
+class _TreeState extends State<_Tree> {
+  final _collapsed = <String>{};
+
+  @override
   Widget build(BuildContext context) {
+    final draft = widget.draft;
+    final unexposed = widget.unexposed;
+    final focusPath = widget.focusPath;
+    final onAdd = widget.onAdd;
+    final onAddPlaceholder = widget.onAddPlaceholder;
+    final onEdit = widget.onEdit;
+    final onDelete = widget.onDelete;
     final c = context.colors;
     final s = context.status;
     final usage = storageUsage(draft);
     final rows = <Widget>[];
     for (final (depth, path, node) in draft.storage.walk()) {
+      if (_collapsed.any((p) => _isDescendant(path, p))) continue;
       final warn = unexposed.contains(path);
       final focused = path == focusPath;
       final isNew = draft.addedInDraft.contains(path);
       int used;
       if (node.isMap) {
-        used = draft.views.where((v) => v.rules.any((r) => ruleCovers(path, r.storage) || ruleCovers(r.storage, path))).length;
+        used = draft.views.where((v) => v.rules.any((r) => ruleExposes(r, path))).length;
       } else {
         used = usage[path] ?? 0;
       }
@@ -144,17 +270,24 @@ class _Tree extends StatelessWidget {
       final writeOnly = users.isNotEmpty && users.every((u) => !u.$2.access.canRead);
       final placeholder = path.split('.').last == StorageNode.placeholderKey;
       final keyPattern = placeholder ? draft.storage.lookup(path.substring(0, path.lastIndexOf('.')))?.keys?.pattern : null;
+      final arrayElement = splitTreePath(path).last == StorageNode.indexKey;
       final sub = [
-        if (placeholder) keyPattern == null ? 'any key' : 'keys match $keyPattern',
+        if (placeholder) keyPattern == null ? 'any <placeholder>' : 'keys match $keyPattern',
+        if (arrayElement) 'one per array element',
         if (warn) 'Warning: not exposed by any view',
         if (writeOnly) 'write-only through ${users.map((u) => u.$1.name).toSet().join(', ')}',
         if (node.isEnum) node.choices.join(' | ') else ?node.constraintSummary,
         if (node.ephemeral && !node.isMap) 'loaded by load-view hook',
+        if (node.required.isNotEmpty) 'requires ${node.required.map((c) => c.join(' & ')).join(' or ')}',
         if (isNew) 'added in draft',
       ];
       final menu = MenuAnchor(
         menuChildren: [
-          MenuItemButton(leadingIcon: const Icon(AppIcons.edit, size: 18), onPressed: () => onEdit(path), child: const Text('Edit')),
+          // An array's element definition is edited/removed through the array
+          // itself; only adding fields inside it applies here.
+          if (!arrayElement) ...[
+            MenuItemButton(leadingIcon: const Icon(AppIcons.edit, size: 18), onPressed: () => onEdit(path), child: const Text('Edit')),
+          ],
           if (node.isMap && !node.hasPlaceholder)
             MenuItemButton(leadingIcon: const Icon(AppIcons.add, size: 18), onPressed: () => onAdd(path), child: const Text('Add child')),
           // snapd maps have fixed keys ("schema") or a placeholder ("values"), not both.
@@ -164,7 +297,12 @@ class _Tree extends StatelessWidget {
               onPressed: node.children.isEmpty ? () => onAddPlaceholder(path) : null,
               child: Text(node.children.isEmpty ? 'Add placeholder' : 'Add placeholder (map must be empty)'),
             ),
-          MenuItemButton(leadingIcon: const Icon(AppIcons.delete, size: 18), onPressed: () => onDelete(path), child: const Text('Delete')),
+          if (!arrayElement)
+            MenuItemButton(
+              leadingIcon: const Icon(AppIcons.delete, size: 18),
+              onPressed: () => onDelete(path),
+              child: const Text('Delete'),
+            ),
         ],
         builder: (context, controller, _) => IconButton(
           tooltip: 'Actions for $path',
@@ -179,14 +317,14 @@ class _Tree extends StatelessWidget {
           children: [
             Expanded(
               child: InkWell(
-                mouseCursor: WidgetStateMouseCursor.clickable,
+                mouseCursor: arrayElement ? MouseCursor.defer : WidgetStateMouseCursor.clickable,
                 borderRadius: BorderRadius.circular(8),
-                onTap: () => onEdit(path),
+                onTap: arrayElement ? null : () => onEdit(path),
                 child: Semantics(
-                  button: true,
-                  label:
-                      'Edit ${node.key}: ${node.typeLabel}, ${used == 0 ? 'no views' : plural(used, 'view')}${warn ? ', not exposed' : ''}',
-                  excludeSemantics: true,
+                  button: !arrayElement,
+                  label: arrayElement
+                      ? 'Array elements: ${node.typeLabel}'
+                      : 'Edit ${node.displayKey}: ${node.typeLabel}, ${used == 0 ? 'no views' : plural(used, 'view')}${warn ? ', not exposed' : ''}',
                   child: Container(
                     padding: EdgeInsets.fromLTRB(8 + depth * 20.0, 6, 8, 6),
                     decoration: BoxDecoration(
@@ -204,7 +342,24 @@ class _Tree extends StatelessWidget {
                           children: [
                             Opacity(
                               opacity: node.isMap ? 1 : 0,
-                              child: Icon(AppIcons.expand, size: 16, color: c.onSurfaceVariant),
+                              child: node.isMap && node.children.isNotEmpty
+                                  ? Semantics(
+                                      button: true,
+                                      label: '${_collapsed.contains(path) ? 'Expand' : 'Collapse'} ${node.displayKey}',
+                                      excludeSemantics: true,
+                                      child: InkWell(
+                                        borderRadius: BorderRadius.circular(4),
+                                        onTap: () => setState(() {
+                                          if (!_collapsed.add(path)) _collapsed.remove(path);
+                                        }),
+                                        child: Icon(
+                                          _collapsed.contains(path) ? AppIcons.chevronRight : AppIcons.expand,
+                                          size: 16,
+                                          color: c.onSurfaceVariant,
+                                        ),
+                                      ),
+                                    )
+                                  : Icon(AppIcons.expand, size: 16, color: c.onSurfaceVariant),
                             ),
                             const SizedBox(width: 8),
                             Expanded(
@@ -213,8 +368,8 @@ class _Tree extends StatelessWidget {
                                 runSpacing: 4,
                                 crossAxisAlignment: WrapCrossAlignment.center,
                                 children: [
-                                  if (placeholder) Icon(AppIcons.placeholder, size: 16, color: c.onSurfaceVariant),
-                                  Text(node.key, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500)),
+                                  if (placeholder || arrayElement) Icon(AppIcons.placeholder, size: 16, color: c.onSurfaceVariant),
+                                  Text(node.displayKey, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500)),
                                   TypeChip(node.typeLabel),
                                   if (node.secret) const SecretChip(),
                                   if (isNew) const StatusBadge.info('New', icon: AppIcons.add),
@@ -314,10 +469,11 @@ class _JsonController extends TextEditingController {
 }
 
 class _JsonEditor extends StatefulWidget {
-  const _JsonEditor({required this.storage, required this.warnPaths, required this.onChanged, required this.expand});
+  const _JsonEditor({required this.storage, required this.aliases, required this.warnPaths, required this.onChanged, required this.expand});
   final StorageNode storage;
+  final Map<String, StorageNode> aliases;
   final Set<String> warnPaths;
-  final ValueChanged<StorageNode> onChanged;
+  final void Function(StorageNode storage, Map<String, StorageNode> aliases) onChanged;
   final bool expand;
 
   @override
@@ -325,7 +481,7 @@ class _JsonEditor extends StatefulWidget {
 }
 
 class _JsonEditorState extends State<_JsonEditor> {
-  late final _ctrl = _JsonController(prettyStorageJson(widget.storage));
+  late final _ctrl = _JsonController(prettyStorageJson(widget.storage, aliases: widget.aliases));
   final _focus = FocusNode();
   String? _error;
   StorageNode? _lastEmitted;
@@ -335,7 +491,7 @@ class _JsonEditorState extends State<_JsonEditor> {
     super.didUpdateWidget(old);
     // Storage changed elsewhere (quick fix): refresh unless the user is typing here.
     if (!identical(widget.storage, _lastEmitted) && !_focus.hasFocus && _error == null) {
-      final next = prettyStorageJson(widget.storage);
+      final next = prettyStorageJson(widget.storage, aliases: widget.aliases);
       if (next != _ctrl.text) _ctrl.text = next;
     }
   }
@@ -349,10 +505,10 @@ class _JsonEditorState extends State<_JsonEditor> {
 
   void _onChanged(String text) {
     try {
-      final root = decodeStorage(jsonDecode(text));
+      final decoded = decodeStorage(jsonDecode(text));
       setState(() => _error = null);
-      _lastEmitted = root;
-      widget.onChanged(root);
+      _lastEmitted = decoded.storage;
+      widget.onChanged(decoded.storage, decoded.aliases);
     } on FormatException catch (e) {
       setState(() => _error = 'Invalid JSON: ${e.message}');
     } on SchemaFormatException catch (e) {

@@ -3,6 +3,7 @@ import 'package:confdb_studio/data/fake/fake_repository.dart';
 import 'package:confdb_studio/data/fake/sample_data.dart';
 import 'package:confdb_studio/screens/overview/overview_screen.dart';
 import 'package:confdb_studio/screens/playground/playground_screen.dart';
+import 'package:confdb_studio/screens/schema_editor/preview_panel.dart';
 import 'package:confdb_studio/screens/schema_editor/schema_editor_screen.dart';
 import 'package:confdb_studio/state/app_controller.dart';
 import 'package:flutter/material.dart';
@@ -24,28 +25,24 @@ void main() {
 
   Finder button(String label) => find.ancestor(of: find.text(label), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton));
 
-  testWidgets('Next leads from the editor to the playground, under the same header, and on to signing', (tester) async {
+  testWidgets('Next leads from the editor to preview, then signing key, and signing lands on the playground', (tester) async {
     await open(tester, const SchemaEditorRoute(networkId));
     await tester.tap(find.textContaining('Add wifi.signal'));
     await tester.pump(const Duration(milliseconds: 500));
     expect(button('Sign & Acknowledge'), findsNothing, reason: 'the editor offers Next');
-    expect(find.bySemanticsLabel(RegExp('step 1 of 4, Schema')), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('step 1 of 5, Schema')), findsOneWidget);
 
     await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    expect(find.byType(PlaygroundPanel), findsOneWidget);
+    expect(find.byType(PreviewPanel), findsOneWidget);
     expect(find.bySemanticsLabel('Schema summary'), findsOneWidget, reason: 'the header stays');
-    expect(find.bySemanticsLabel(RegExp('step 2 of 4, Playground')), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('step 2 of 5, Preview')), findsOneWidget);
     expect(find.text('Sign & Acknowledge'), findsNothing);
+    expect(find.textContaining('"wifi"'), findsOneWidget, reason: 'the storage schema shows');
 
-    // A denied simulation doesn't stop proceeding to the signing-key step.
-    await tester.enterText(find.widgetWithText(TextField, 'Request path'), 'no.such.path');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
-    expect(find.textContaining('Denied at step'), findsOneWidget);
     await tester.tap(find.text('Next'));
     await tester.pumpAndSettle();
-    expect(find.bySemanticsLabel(RegExp('step 3 of 4, Signing key')), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('step 3 of 5, Signing key')), findsOneWidget);
     expect(button('Sign & Acknowledge'), findsOneWidget);
     expect(tester.widget<ButtonStyleButton>(button('Sign & Acknowledge')).onPressed, isNull, reason: 'no key selected yet');
 
@@ -54,6 +51,17 @@ void main() {
     await tester.tap(button('Sign & Acknowledge'));
     await tester.pumpAndSettle();
     expect(find.byType(Dialog), findsOneWidget);
+
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Sign and acknowledge'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Sign and acknowledge'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.byType(PlaygroundPanel), findsOneWidget, reason: 'acknowledging lands on the playground, to try the new revision');
+    expect(find.bySemanticsLabel(RegExp('step 5 of 5, Playground')), findsOneWidget);
+    expect(find.textContaining('signed and acknowledged'), findsOneWidget, reason: 'confirms the sign succeeded');
+    expect(find.text('Done'), findsOneWidget, reason: 'nothing left to do but leave');
+    expect(find.text('Back'), findsNothing);
   });
 
   testWidgets('a snap with no plug for the view gets a guide to add one', (tester) async {
@@ -77,7 +85,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Back'));
     await tester.pumpAndSettle();
-    expect(find.byType(PlaygroundPanel), findsNothing);
+    expect(find.byType(PreviewPanel), findsNothing);
     expect(find.textContaining('Add wifi.signal'), findsNothing, reason: 'the quick fix is still applied');
     expect(find.text('Next'), findsOneWidget);
   });

@@ -124,12 +124,14 @@ class _RulesTableState extends State<RulesTable> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final head = tableHeaderStyle(context);
-    Widget cells(Widget a, Widget b, Widget d, Widget e) => Row(
+    Widget cells(Widget a, Widget b, Widget fields, Widget d, Widget e) => Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(flex: 8, child: a),
         const SizedBox(width: 12),
         Expanded(flex: 16, child: b),
+        const SizedBox(width: 12),
+        SizedBox(width: 140, child: fields),
         const SizedBox(width: 12),
         SizedBox(width: 150, child: d),
         const SizedBox(width: 12),
@@ -155,6 +157,7 @@ class _RulesTableState extends State<RulesTable> {
                   child: cells(
                     Text('Request path', style: head),
                     Text('Storage path', style: head),
+                    Text('Fields', style: head),
                     Text('Access', style: head),
                     Semantics(label: 'Actions', child: const SizedBox.shrink()),
                   ),
@@ -184,7 +187,7 @@ class _RulesTableState extends State<RulesTable> {
     );
   }
 
-  Widget _row(BuildContext context, int i, Widget Function(Widget, Widget, Widget, Widget) cells) {
+  Widget _row(BuildContext context, int i, Widget Function(Widget, Widget, Widget, Widget, Widget) cells) {
     final c = context.colors;
     final r = rules[i];
     final missing = widget.issues
@@ -196,6 +199,8 @@ class _RulesTableState extends State<RulesTable> {
         ? null
         : widget.issues.where((x) => x.request == r.request && x.storagePath == r.storage && x.detail != null).firstOrNull;
     final mono = context.text.bodyMedium!.mono;
+    final resolved = resolveStoragePath(widget.storage, r.storage);
+    final mapNode = missing == null && (resolved?.isMap ?? false) && resolved!.children.isNotEmpty ? resolved : null;
 
     InputDecoration deco({required String label, Widget? error, Widget? helper, String? hint}) => InputDecoration(
       isDense: true,
@@ -276,6 +281,53 @@ class _RulesTableState extends State<RulesTable> {
       ],
     );
 
+    final selected = r.content.toSet();
+    final fields = mapNode == null
+        ? const SizedBox.shrink()
+        : MenuAnchor(
+            menuChildren: [
+              MenuItemButton(
+                closeOnActivate: false,
+                onPressed: () => _set(i, r.copyWith(content: const [])),
+                leadingIcon: SizedBox(width: 20, child: selected.isEmpty ? const Icon(AppIcons.check, size: 20) : null),
+                child: const Text('All fields'),
+              ),
+              const Divider(height: 1),
+              for (final child in mapNode.children)
+                MenuItemButton(
+                  closeOnActivate: false,
+                  onPressed: () => _set(i, r.copyWith(content: _toggled(selected, child.key, !selected.contains(child.key)).toList())),
+                  leadingIcon: SizedBox(width: 20, child: selected.contains(child.key) ? const Icon(AppIcons.check, size: 20) : null),
+                  child: Text(child.key, style: context.text.bodyMedium?.mono),
+                ),
+            ],
+            builder: (context, controller, _) => SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => controller.isOpen ? controller.close() : controller.open(),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: c.onSurface,
+                  side: BorderSide(color: c.outlineVariant),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  padding: const EdgeInsets.fromLTRB(12, 0, 8, 0),
+                  minimumSize: const Size(0, 40),
+                ),
+                child: Semantics(
+                  label: 'Fields exposed for ${r.storage}: ${r.content.isEmpty ? 'All fields' : r.content.join(', ')}',
+                  excludeSemantics: true,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(r.content.isEmpty ? 'All fields' : r.content.join(', '), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ),
+                      const Icon(AppIcons.expand, size: 18),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+
     final access = MenuAnchor(
       menuChildren: [
         for (final a in RuleAccess.values)
@@ -319,12 +371,15 @@ class _RulesTableState extends State<RulesTable> {
       child: cells(
         request,
         storage,
+        fields,
         access,
         IconButton(tooltip: 'Delete rule ${r.request}', onPressed: () => _delete(i), icon: const Icon(AppIcons.delete, size: 20)),
       ),
     );
   }
 }
+
+Set<String> _toggled(Set<String> selected, String key, bool add) => add ? {...selected, key} : ({...selected}..remove(key));
 
 /// Storage path combobox: suggests storage leaves with their type, whether
 /// they are ephemeral, and how many views use them.
@@ -347,7 +402,11 @@ class _StoragePathField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final leaves = root.leaves().toList();
+    final leaves = [
+      ...root.leaves(),
+      for (final (_, p, n) in root.walk())
+        if (n.isMap && n.children.isNotEmpty) (p, n),
+    ];
     return LayoutBuilder(
       builder: (context, constraints) {
         return RawAutocomplete<(String, StorageNode)>(
@@ -402,7 +461,14 @@ class _StoragePathField extends StatelessWidget {
                                 padding: const EdgeInsets.symmetric(horizontal: 12),
                                 child: Row(
                                   children: [
-                                    Text(path, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500)),
+                                    Flexible(
+                                      child: Text(
+                                        path,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500),
+                                      ),
+                                    ),
                                     const SizedBox(width: 8),
                                     TypeChip(node.typeLabel),
                                     if (node.ephemeral) ...[
@@ -410,8 +476,16 @@ class _StoragePathField extends StatelessWidget {
                                       Icon(AppIcons.bolt, size: 14, color: c.onSurfaceVariant),
                                       Text('Ephemeral', style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
                                     ],
-                                    const Spacer(),
-                                    Text(_usedLabel(path), style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        _usedLabel(path),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        textAlign: TextAlign.end,
+                                        style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),

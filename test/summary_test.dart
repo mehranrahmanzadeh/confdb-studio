@@ -37,7 +37,7 @@ void main() {
     final r = repo();
     await open(tester, r, const OnboardingRoute(choose: true));
     final summary = find.widgetWithText(TextField, 'Summary');
-    expect(tester.widget<TextField>(summary).controller!.text, 'Wi-Fi settings', reason: 'prefilled from the template');
+    expect(tester.widget<TextField>(summary).controller!.text, 'Wi-Fi', reason: 'prefilled from the template');
     await tester.enterText(find.widgetWithText(TextField, 'Schema name'), 'office-net');
     await tester.enterText(summary, 'Office Wi-Fi');
     await tester.tap(find.text('Open in schema editor'));

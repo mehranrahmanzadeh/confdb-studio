@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 
 /// Material equivalents of the design files' inline SVG icons (the `IC` maps).
 abstract final class AppIcons {
-  static const overview = Icons.home_outlined;
-  static const overviewSelected = Icons.home;
   static const schemas = Icons.account_tree_outlined;
   static const schemasSelected = Icons.account_tree;
   static const data = Icons.storage_outlined;

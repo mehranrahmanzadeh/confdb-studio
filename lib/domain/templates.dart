@@ -22,19 +22,25 @@ final schemaTemplates = <SchemaTemplate>[
   SchemaTemplate(
     id: 'wifi',
     label: 'Wi-Fi',
-    paths: 'wifi.ssid · wifi.psk · wifi.band · wifi.status',
+    paths: 'v1.wifi.ssid · v1.wifi.psk · v1.wifi.band · v1.wifi.status',
     build: (id) => _draft(
       id,
-      'Wi-Fi settings',
+      'Wi-Fi',
       const [
         StorageNode(
-          key: 'wifi',
+          key: 'v1',
           kind: StorageKind.map,
           children: [
-            StorageNode(key: 'ssid', kind: StorageKind.string),
-            StorageNode(key: 'psk', kind: StorageKind.string, secret: true),
-            StorageNode(key: 'band', kind: StorageKind.string, choices: ['2.4GHz', '5GHz', 'auto']),
-            StorageNode(key: 'status', kind: StorageKind.string, ephemeral: true),
+            StorageNode(
+              key: 'wifi',
+              kind: StorageKind.map,
+              children: [
+                StorageNode(key: 'ssid', kind: StorageKind.string),
+                StorageNode(key: 'psk', kind: StorageKind.string, secret: true),
+                StorageNode(key: 'band', kind: StorageKind.string, choices: ['2.4GHz', '5GHz', 'auto']),
+                StorageNode(key: 'status', kind: StorageKind.string, ephemeral: true),
+              ],
+            ),
           ],
         ),
       ],
@@ -42,18 +48,19 @@ final schemaTemplates = <SchemaTemplate>[
         ViewDef(
           name: 'wifi-admin',
           rules: [
-            ViewRule(request: 'ssid', storage: 'wifi.ssid', access: _rw),
-            ViewRule(request: 'psk', storage: 'wifi.psk', access: _w),
-            ViewRule(request: 'band', storage: 'wifi.band', access: _rw),
-            ViewRule(request: 'status', storage: 'wifi.status', access: _r),
+            ViewRule(request: 'ssid', storage: 'v1.wifi.ssid', access: _rw),
+            ViewRule(request: 'password', storage: 'v1.wifi.psk', access: _w),
+            ViewRule(request: 'band', storage: 'v1.wifi.band', access: _rw),
+            ViewRule(request: 'status', storage: 'v1.wifi.status', access: _r),
           ],
         ),
         ViewDef(
           name: 'wifi-state',
+          summary: 'State of the Wi-Fi connection',
           rules: [
-            ViewRule(request: 'ssid', storage: 'wifi.ssid', access: _r),
-            ViewRule(request: 'band', storage: 'wifi.band', access: _r),
-            ViewRule(request: 'status', storage: 'wifi.status', access: _r),
+            ViewRule(request: 'ssid', storage: 'v1.wifi.ssid', access: _r),
+            ViewRule(request: 'band', storage: 'v1.wifi.band', access: _r),
+            ViewRule(request: 'status', storage: 'v1.wifi.status', access: _r),
           ],
         ),
       ],
@@ -62,15 +69,21 @@ final schemaTemplates = <SchemaTemplate>[
   SchemaTemplate(
     id: 'kv',
     label: 'Minimal key/value',
-    paths: 'values.<key> (string map)',
+    paths: 'v1.values.<name> (string map)',
     build: (id) => _draft(
       id,
-      'Key/value settings',
-      const [StorageNode(key: 'values', kind: StorageKind.map, valuesType: 'string')],
+      'Key/value store',
+      const [
+        StorageNode(
+          key: 'v1',
+          kind: StorageKind.map,
+          children: [StorageNode(key: 'values', kind: StorageKind.map, valuesType: 'string')],
+        ),
+      ],
       const [
         ViewDef(
-          name: 'admin',
-          rules: [ViewRule(request: '{key}', storage: 'values.{key}', access: _rw)],
+          name: 'values-admin',
+          rules: [ViewRule(request: '{name}', storage: 'v1.values.{name}', access: _rw)],
         ),
       ],
     ),

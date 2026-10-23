@@ -4,7 +4,7 @@ import 'package:confdb_studio/domain/schema_codec.dart';
 
 /// Sensors and actuators, with placeholders, a nested map of values, an
 /// alias, a list and a field filter.
-final robotStorage = decodeStorage({
+final _robotDecoded = decodeStorage({
   'storage': {
     'aliases': {
       'actuator': {
@@ -31,6 +31,9 @@ final robotStorage = decodeStorage({
   },
 });
 
+final robotStorage = _robotDecoded.storage;
+final robotAliases = _robotDecoded.aliases;
+
 const robotRules = [
   ViewRule(request: 'accelerometers.{sensor}', storage: 'sensors.accelerometers.{sensor}', access: RuleAccess.readWrite),
   ViewRule(request: 'actuators.{act}', storage: 'actuators.{act}[.mode={mode}]', access: RuleAccess.readWrite),
@@ -42,6 +45,7 @@ ConfdbSchema robotSchema([List<ViewRule> rules = robotRules]) => ConfdbSchema(
   id: const SchemaId('acme', 'robot'),
   summary: 'Robot',
   storage: robotStorage,
+  aliases: robotAliases,
   views: [ViewDef(name: 'control', rules: rules)],
   isDraft: true,
 );

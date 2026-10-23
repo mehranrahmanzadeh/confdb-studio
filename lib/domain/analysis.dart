@@ -56,6 +56,13 @@ bool ruleCovers(String rulePath, String storagePath) {
   return true;
 }
 
+/// True when [rule] actually exposes [storagePath]: like [ruleCovers] in
+/// either direction, but checked against each of the rule's
+/// [ViewRule.exposedStoragePaths] rather than its raw `storage`, so a
+/// `content` subset doesn't make the whole map look exposed.
+bool ruleExposes(ViewRule rule, String storagePath) =>
+    rule.exposedStoragePaths.any((sp) => ruleCovers(sp, storagePath) || ruleCovers(storagePath, sp));
+
 enum LintSeverity { error, warning }
 
 class LintIssue {
@@ -93,7 +100,10 @@ List<LintIssue> lintSchema(ConfdbSchema schema) {
     if (view.rules.isEmpty) {
       issues.add(LintIssue(severity: LintSeverity.warning, message: '`${view.name}` has no rules, so it exposes nothing', view: view.name));
     }
-    final seen = <String>{};
+    // Access per request path seen so far, to flag only overlapping access
+    // (e.g. two `read` rules, or a `read-write` next to anything else) and
+    // allow non-overlapping pairs like `read` + `write` for the same path.
+    final seen = <String, List<RuleAccess>>{};
     for (final rule in view.rules) {
       if (rule.request.trim().isEmpty || rule.storage.trim().isEmpty) {
         issues.add(
@@ -106,11 +116,14 @@ List<LintIssue> lintSchema(ConfdbSchema schema) {
         );
         continue;
       }
-      if (!seen.add(rule.request)) {
+      final withSameRequest = seen.putIfAbsent(rule.request, () => []);
+      final overlaps = withSameRequest.any((a) => (a.canRead && rule.access.canRead) || (a.canWrite && rule.access.canWrite));
+      withSameRequest.add(rule.access);
+      if (overlaps) {
         issues.add(
           LintIssue(
             severity: LintSeverity.error,
-            message: '`${view.name}`: request path `${rule.request}` is used by more than one rule',
+            message: '`${view.name}`: request path `${rule.request}` is used by more than one rule with overlapping access',
             view: view.name,
             request: rule.request,
           ),
@@ -163,7 +176,7 @@ List<LintIssue> lintSchema(ConfdbSchema schema) {
   }
   for (final (path, _) in schema.storage.leaves()) {
     // A rule exposes a leaf when it covers it or reaches inside it (`list[{n}]`).
-    final exposed = schema.views.any((v) => v.rules.any((r) => ruleCovers(r.storage, path) || ruleCovers(path, r.storage)));
+    final exposed = schema.views.any((v) => v.rules.any((r) => ruleExposes(r, path)));
     if (!exposed) {
       issues.add(
         LintIssue(severity: LintSeverity.warning, message: '`$path` is defined in storage but no view rule exposes it', storagePath: path),

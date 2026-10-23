@@ -15,15 +15,23 @@ import '../store/store_login_dialog.dart';
 
 /// 7.5 Sign & acknowledge (SignDialog.dc.html, -Progress). The signing key
 /// is picked on the editor's "Signing key" step; this dialog just confirms
-/// and runs the sign (and optional push).
-Future<void> showSignDialog(BuildContext context, ConfdbSchema draft, ConfdbSchema? base, SigningKey key, {bool? keyRegistered}) {
+/// and runs the sign (and optional push). On success, it opens the
+/// playground step (to [view], when given) so the new revision can be tried.
+Future<void> showSignDialog(
+  BuildContext context,
+  ConfdbSchema draft,
+  ConfdbSchema? base,
+  SigningKey key, {
+  bool? keyRegistered,
+  String? view,
+}) {
   final scope = context.scope;
   final messenger = ScaffoldMessenger.of(context);
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (context) =>
-        _SignDialog(draft: draft, base: base, signKey: key, keyRegistered: keyRegistered, scope: scope, messenger: messenger),
+        _SignDialog(draft: draft, base: base, signKey: key, keyRegistered: keyRegistered, view: view, scope: scope, messenger: messenger),
   );
 }
 
@@ -33,6 +41,7 @@ class _SignDialog extends StatefulWidget {
     required this.base,
     required this.signKey,
     required this.keyRegistered,
+    required this.view,
     required this.scope,
     required this.messenger,
   });
@@ -40,6 +49,9 @@ class _SignDialog extends StatefulWidget {
   final ConfdbSchema? base;
   final SigningKey signKey;
   final bool? keyRegistered;
+
+  /// The view selected on the editor; opens the post-sign playground step.
+  final String? view;
   final AppScope scope;
   final ScaffoldMessengerState messenger;
 
@@ -88,7 +100,10 @@ class _SignDialogState extends State<_SignDialog> {
       if (push) widget.scope.store.reloadSchemas();
       if (!mounted) return;
       Navigator.of(context).pop();
-      app.go(const OverviewRoute());
+      // Try the newly-applied revision in the playground, or back to the
+      // overview if there's no view left to open it with.
+      final view = widget.view ?? widget.draft.views.firstOrNull?.name;
+      app.go(view == null ? const OverviewRoute() : PlaygroundRoute(widget.draft.id, view: view));
       showToast(
         widget.messenger,
         CodeText(

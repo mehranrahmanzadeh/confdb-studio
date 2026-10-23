@@ -16,28 +16,35 @@ class SchemaFormatException implements Exception {
 
 // ---------------------------------------------------------------- storage
 
-/// Decodes `{"storage": {"schema": {...}}}` or `{"schema": {...}}`.
+/// Decodes `{"storage": {"schema": {...}}}` or `{"schema": {...}}`, returning
+/// the tree and the top-level `aliases` map (named reusable types).
 ///
 /// Understands the parts of the confdb storage format the app shows:
-/// `aliases` (referenced as `"${name}"`, inlined on decode), maps with a
-/// `schema` or with typed `keys`/`values`, arrays, alternatives (a list of
-/// types), `ephemeral` and `"visibility": "secret"` (snapd 2.76+). Other
-/// keywords (`required`, …) are ignored, and unknown types become `any`, so
-/// real assertions always load.
+/// `aliases` (referenced as `"${name}"`, kept as [StorageNode.aliasRef] on
+/// the referencing node), maps with a `schema` (optionally with `required`
+/// key combinations) or with typed `keys`/`values`, arrays, alternatives (a
+/// list of types), `ephemeral` and `"visibility": "secret"` (snapd 2.76+).
+/// Unknown types become `any`, so real assertions always load.
 ///
-/// Enforces snapd's rules for secrets: none inside alias types, and the
-/// alternatives of one entry are either all secret or all not.
-StorageNode decodeStorage(Object? json) {
+/// Enforces snapd's rules for aliases: no `ephemeral` or secret visibility
+/// inside an alias type, and aliases can't reference other aliases. Also
+/// enforces that alternatives of one entry are either all secret or all not.
+({StorageNode storage, Map<String, StorageNode> aliases}) decodeStorage(Object? json) {
   if (json is! Map) throw const SchemaFormatException('Storage must be a JSON object');
   final inner = json.containsKey('storage') ? json['storage'] : json;
   if (inner is! Map || inner['schema'] is! Map) {
     throw const SchemaFormatException('Expected "storage": { "schema": { … } }');
   }
-  final aliases = inner['aliases'] is Map ? Map<String, Object?>.from(inner['aliases'] as Map) : const <String, Object?>{};
-  for (final e in aliases.entries) {
+  final rawAliases = inner['aliases'] is Map ? Map<String, Object?>.from(inner['aliases'] as Map) : const <String, Object?>{};
+  final aliasNodes = <String, StorageNode>{};
+  for (final e in rawAliases.entries) {
     if (_hasSecret(e.value)) throw SchemaFormatException('Alias "${e.key}" defines a secret; secrets can’t be defined inside alias types');
+    if (_hasEphemeral(e.value)) throw SchemaFormatException('Alias "${e.key}" is ephemeral; aliases can’t be ephemeral');
+    // Aliases can't reference other aliases: decode with no aliases known.
+    aliasNodes[e.key] = _StorageDecoder(const {}, const {}).node(e.key, e.value, 'aliases.${e.key}');
   }
-  return StorageNode.root(_StorageDecoder(aliases).children(inner['schema'] as Map, ''));
+  final decoder = _StorageDecoder(rawAliases, aliasNodes);
+  return (storage: StorageNode.root(decoder.children(inner['schema'] as Map, '')), aliases: aliasNodes);
 }
 
 bool _isSecret(Object? v) => v is Map && v['visibility'] == 'secret';
@@ -49,9 +56,49 @@ bool _hasSecret(Object? v) => switch (v) {
   _ => false,
 };
 
+bool _isEphemeral(Object? v) => v is Map && v['ephemeral'] == true;
+
+/// Whether a definition, or anything inside it, is marked ephemeral.
+bool _hasEphemeral(Object? v) => switch (v) {
+  Map() => _isEphemeral(v) || v.values.any(_hasEphemeral),
+  List() => v.any(_hasEphemeral),
+  _ => false,
+};
+
+/// A map's `"required"` constraint: either a flat list of keys (one required
+/// combination) or a list of alternative combinations, e.g.
+/// `["name", "revision"]` or `[["name", "revision"], ["id"]]`. Every key
+/// named must have a "schema" entry.
+List<List<String>> requiredCombos(Object? raw, String path, Set<String> schemaKeys) {
+  if (raw == null) return const [];
+  if (raw is! List) throw SchemaFormatException('"$path.required" must be a list');
+  final combos = raw.isNotEmpty && raw.first is List
+      ? [
+          for (final c in raw)
+            if (c is List) [for (final k in c) '$k'] else throw SchemaFormatException('"$path.required" must be a list of lists'),
+        ]
+      : [
+          [for (final k in raw) '$k'],
+        ];
+  for (final combo in combos) {
+    for (final k in combo) {
+      if (!schemaKeys.contains(k)) {
+        throw SchemaFormatException('"$path.required" names "$k", which has no "schema" entry');
+      }
+    }
+  }
+  return combos;
+}
+
 class _StorageDecoder {
-  _StorageDecoder(this.aliases);
-  final Map<String, Object?> aliases;
+  _StorageDecoder(this.rawAliases, this.aliasNodes);
+
+  /// Raw JSON of each top-level alias, for resolving labels (`typeName`,
+  /// `inline`) inside maps/arrays/alternatives that use one.
+  final Map<String, Object?> rawAliases;
+
+  /// Decoded alias definitions, for building [StorageNode.aliasRef] nodes.
+  final Map<String, StorageNode> aliasNodes;
 
   static final _ref = RegExp(r'^\$\{(.+)\}$');
 
@@ -60,8 +107,8 @@ class _StorageDecoder {
     if (v is String && depth < 16) {
       final m = _ref.firstMatch(v);
       if (m != null) {
-        if (!aliases.containsKey(m[1])) throw SchemaFormatException('Unknown alias "${m[1]}"');
-        return resolve(aliases[m[1]], depth + 1);
+        if (!rawAliases.containsKey(m[1])) throw SchemaFormatException('Unknown alias "${m[1]}"');
+        return resolve(rawAliases[m[1]], depth + 1);
       }
     }
     return v;
@@ -100,8 +147,17 @@ class _StorageDecoder {
   }
 
   StorageNode node(String key, Object? raw, String path) {
-    final v = resolve(raw);
-    if (v is String) return StorageNode(key: key, kind: kind(v));
+    if (raw is String) {
+      final m = _ref.firstMatch(raw);
+      if (m != null) {
+        final name = m[1]!;
+        final def = aliasNodes[name];
+        if (def == null) throw SchemaFormatException('Unknown alias "$name" at "$path"');
+        return def.asAliasRef(key, name);
+      }
+      return StorageNode(key: key, kind: kind(raw));
+    }
+    final v = raw;
     if (v is List) return alternativesNode(key, raw, v, path);
     if (v is! Map) throw SchemaFormatException('"$path" must be a type name or an object');
     final secret = _isSecret(v);
@@ -114,6 +170,15 @@ class _StorageDecoder {
       if (schema is! Map && values == null) {
         throw SchemaFormatException('Map "$path" needs a "schema" object or a "values" type');
       }
+      final keysNode = schema is Map || v['keys'] == null ? null : node('keys', v['keys'], '$path.keys');
+      if (keysNode != null && keysNode.aliasRef != null && keysNode.kind != StorageKind.string) {
+        throw SchemaFormatException('"$path.keys" uses alias "${keysNode.aliasRef}", which isn’t string-based');
+      }
+      if (v['required'] != null && schema is! Map) {
+        throw SchemaFormatException('"$path" has a "required" constraint but no "schema" constraint');
+      }
+      final schemaKeys = schema is Map ? schema.keys.map((k) => k as String).toSet() : const <String>{};
+      final required = requiredCombos(v['required'], path, schemaKeys);
       return StorageNode(
         key: key,
         kind: k,
@@ -121,14 +186,27 @@ class _StorageDecoder {
         ephemeral: v['ephemeral'] == true,
         valuesType: schema is Map ? null : typeName(values),
         valuesNode: schema is Map ? null : valuesNode(values, path),
-        keys: schema is Map || v['keys'] == null ? null : node('keys', v['keys'], '$path.keys'),
+        keys: keysNode,
         secret: secret,
+        required: required,
       );
+    }
+    final rawChoices = v['choices'] as List?;
+    if (rawChoices != null) {
+      if (k == StorageKind.string && v['pattern'] != null) {
+        throw SchemaFormatException('"$path" can’t have both "choices" and "pattern"');
+      }
+      if ((k == StorageKind.int || k == StorageKind.number) && (v['min'] != null || v['max'] != null)) {
+        throw SchemaFormatException('"$path" can’t have both "choices" and "min"/"max"');
+      }
+    }
+    if (v['unique'] != null && k != StorageKind.array) {
+      throw SchemaFormatException('"$path" has a "unique" constraint but isn’t an array');
     }
     return StorageNode(
       key: key,
       kind: k,
-      choices: [for (final c in (v['choices'] as List? ?? const [])) '$c'],
+      choices: [for (final c in (rawChoices ?? const [])) '$c'],
       pattern: v['pattern'] as String?,
       min: v['min'] as num?,
       max: v['max'] as num?,
@@ -136,6 +214,7 @@ class _StorageDecoder {
       valuesType: typeName(values),
       valuesNode: valuesNode(values, path),
       secret: secret,
+      unique: k == StorageKind.array && v['unique'] == true,
     );
   }
 
@@ -161,7 +240,16 @@ class _StorageDecoder {
 
 Object? _encodeValues(StorageNode n) => n.valuesNode == null ? n.valuesType : _encodeNode(n.valuesNode!);
 
+/// `"choices"` as numbers for `int`/`number` nodes, as strings otherwise
+/// ([StorageNode.choices] is always kept as strings internally).
+List<Object> _encodeChoices(StorageNode n) => switch (n.kind) {
+  StorageKind.int => [for (final c in n.choices) int.parse(c)],
+  StorageKind.number => [for (final c in n.choices) num.parse(c)],
+  _ => n.choices,
+};
+
 Object _encodeNode(StorageNode n) {
+  if (n.aliasRef != null) return '\${${n.aliasRef}}';
   if (n.raw != null) return n.raw!;
   if (n.isMap) {
     if (n.valuesType != null && n.children.isEmpty) {
@@ -175,6 +263,7 @@ Object _encodeNode(StorageNode n) {
     }
     return {
       'schema': {for (final c in n.children) c.key: _encodeNode(c)},
+      if (n.required.isNotEmpty) 'required': n.required.length == 1 ? n.required.first : n.required,
       if (n.ephemeral) 'ephemeral': true,
       if (n.secret) 'visibility': 'secret',
     };
@@ -183,30 +272,32 @@ Object _encodeNode(StorageNode n) {
   if (simple) return n.kind.name;
   return {
     'type': n.kind.name,
-    if (n.isEnum) 'choices': n.choices,
+    if (n.isEnum) 'choices': _encodeChoices(n),
     if (n.pattern != null) 'pattern': n.pattern,
     if (n.min != null) 'min': n.min,
     if (n.max != null) 'max': n.max,
     if (n.valuesType != null) 'values': _encodeValues(n),
+    if (n.kind == StorageKind.array && n.unique) 'unique': true,
     if (n.ephemeral) 'ephemeral': true,
     if (n.secret) 'visibility': 'secret',
   };
 }
 
-Map<String, Object?> encodeStorage(StorageNode root) => {
+Map<String, Object?> encodeStorage(StorageNode root, {Map<String, StorageNode> aliases = const {}}) => {
   'storage': {
+    if (aliases.isNotEmpty) 'aliases': {for (final e in aliases.entries) e.key: _encodeNode(e.value)},
     'schema': {for (final c in root.children) c.key: _encodeNode(c)},
   },
 };
 
 /// Pretty JSON like the design: maps expand, short leaf objects stay inline.
-String prettyStorageJson(StorageNode root) {
+String prettyStorageJson(StorageNode root, {Map<String, StorageNode> aliases = const {}}) {
   final b = StringBuffer();
   void write(Object? v, int indent) {
     final pad = '  ' * indent;
     if (v is Map) {
       final inline = jsonEncode(v).replaceAll('":', '": ').replaceAll(',"', ', "').replaceAll('","', '", "');
-      final isLeaf = !v.containsKey('schema') && !v.containsKey('storage');
+      final isLeaf = !v.containsKey('schema') && !v.containsKey('storage') && !v.containsKey('aliases');
       if (isLeaf && inline.length <= 50) {
         b.write('{ ${inline.substring(1, inline.length - 1)} }');
         return;
@@ -226,7 +317,7 @@ String prettyStorageJson(StorageNode root) {
     }
   }
 
-  write(encodeStorage(root), 0);
+  write(encodeStorage(root, aliases: aliases), 0);
   return b.toString();
 }
 
@@ -240,13 +331,45 @@ List<ViewDef> decodeViews(Object? json) {
         name: e.key as String,
         summary: (e.value as Map?)?['summary'] as String?,
         parameters: _decodeParameters((e.value as Map?)?['parameters'], e.key as String),
-        rules: [for (final r in ((e.value as Map?)?['rules'] as List? ?? const [])) ..._flattenRule(r as Map, null, null, null)],
+        rules: [for (final r in ((e.value as Map?)?['rules'] as List? ?? const [])) ..._decodeRule(r as Map)],
       ),
   ];
 }
 
+/// Decodes a top-level view rule. A `content` of plain `{storage: field}`
+/// entries (the shape this editor itself writes, and snapd's common case)
+/// collapses into a single [ViewRule] with that subset of fields; anything
+/// more exotic (its own `request`/`access`, or further nesting) falls back to
+/// [_flattenRule], so no information is lost even though the editor can't
+/// show it as a subset picker.
+List<ViewRule> _decodeRule(Map r) {
+  final storage = r['storage'] as String?;
+  if (storage == null) throw const SchemaFormatException('A view rule has no "storage"');
+  final request = r['request'] as String? ?? storage;
+  final access = r['access'] is String ? RuleAccess.parse(r['access'] as String) : RuleAccess.readWrite;
+  final content = r['content'];
+  if (content is List && content.isNotEmpty) {
+    final fields = <String>[];
+    for (final c in content) {
+      final simple =
+          c is Map &&
+          c['storage'] is String &&
+          !(c['storage'] as String).contains('.') &&
+          !(c['storage'] as String).startsWith('[') &&
+          (c['request'] == null || c['request'] == c['storage']) &&
+          c['access'] == null &&
+          c['content'] == null;
+      if (!simple) return _flattenRule(r, null, null, null);
+      fields.add(c['storage'] as String);
+    }
+    return [ViewRule(request: request, storage: storage, access: access, content: fields)];
+  }
+  return [ViewRule(request: request, storage: storage, access: access)];
+}
+
 /// Flattens nested `content` rules into leaf rules: a child's request and
 /// storage are relative to its parent's, and it inherits the parent's access.
+/// Used for `content` shapes [_decodeRule] can't represent as a field subset.
 List<ViewRule> _flattenRule(Map r, String? parentRequest, String? parentStorage, RuleAccess? parentAccess) {
   final storagePart = r['storage'] as String?;
   if (storagePart == null) throw const SchemaFormatException('A view rule has no "storage"');
@@ -299,7 +422,16 @@ Map<String, Object?> encodeViews(List<ViewDef> views) => {
           for (final e in params.entries) e.key: {if (e.value != 'optional') 'presence': e.value},
         },
       'rules': [
-        for (final r in v.rules) {'request': r.request, 'storage': r.storage, 'access': r.access.label},
+        for (final r in v.rules)
+          {
+            'request': r.request,
+            'storage': r.storage,
+            'access': r.access.label,
+            if (r.content.isNotEmpty)
+              'content': [
+                for (final f in r.content) {'storage': f},
+              ],
+          },
       ],
     },
 };
@@ -316,8 +448,83 @@ Map<String, Object?> signInput(ConfdbSchema draft, {required int revision, requi
   if (draft.summary.isNotEmpty) 'summary': draft.summary,
   'views': encodeViews(draft.views),
   'timestamp': timestamp.toUtc().toIso8601String(),
-  'body': jsonEncode(encodeStorage(draft.storage)),
+  'body': jsonEncode(encodeStorage(draft.storage, aliases: draft.aliases)),
 };
+
+// ------------------------------------------------------- assertion preview
+
+/// Renders [draft] the way confdb's documentation shows a signed
+/// confdb-schema assertion: aligned YAML headers (`type`, `authority-id`,
+/// `account-id`, `name`, `summary`, `views`) followed by a blank line and the
+/// JSON storage body — everything but the headers' values and the body are
+/// unsigned/unknown until `snap sign`, so this is illustrative only.
+String formatAssertionPreview(ConfdbSchema draft) {
+  final headers = <String, Object?>{
+    'type': 'confdb-schema',
+    'authority-id': draft.id.account,
+    'account-id': draft.id.account,
+    'name': draft.id.name,
+    if (draft.summary.isNotEmpty) 'summary': draft.summary,
+  };
+  final width = headers.keys.map((k) => k.length + 1).reduce((a, b) => a > b ? a : b) + 1;
+  final buf = StringBuffer();
+  for (final e in headers.entries) {
+    buf.writeln('${'${e.key}:'.padRight(width)}${_yamlScalar(e.value)}');
+  }
+  final views = encodeViews(draft.views);
+  if (views.isNotEmpty) {
+    buf.writeln('views:');
+    buf.write(_yamlMap(views, 1));
+  }
+  buf.writeln();
+  buf.write(const JsonEncoder.withIndent('  ').convert(encodeStorage(draft.storage, aliases: draft.aliases)));
+  return buf.toString();
+}
+
+String _yamlMap(Map<String, Object?> map, int indent) {
+  final pad = '  ' * indent;
+  final buf = StringBuffer();
+  for (final e in map.entries) {
+    if (e.value is Map && (e.value as Map).isNotEmpty) {
+      buf.writeln('$pad${e.key}:');
+      buf.write(_yamlMap((e.value as Map).cast<String, Object?>(), indent + 1));
+    } else if (e.value is List && (e.value as List).isNotEmpty) {
+      buf.writeln('$pad${e.key}:');
+      buf.write(_yamlList((e.value as List).cast<Object?>(), indent + 1));
+    } else if (e.value is Map || e.value is List) {
+      buf.writeln('$pad${e.key}: ${e.value is Map ? '{}' : '[]'}');
+    } else {
+      buf.writeln('$pad${e.key}: ${_yamlScalar(e.value)}');
+    }
+  }
+  return buf.toString();
+}
+
+String _yamlList(List<Object?> list, int indent) {
+  final pad = '  ' * indent;
+  final buf = StringBuffer();
+  for (final item in list) {
+    buf.writeln('$pad-');
+    if (item is Map && item.isNotEmpty) {
+      buf.write(_yamlMap(item.cast<String, Object?>(), indent + 1));
+    } else if (item is List && item.isNotEmpty) {
+      buf.write(_yamlList(item.cast<Object?>(), indent + 1));
+    } else if (item is! Map && item is! List) {
+      buf.writeln('$pad  ${_yamlScalar(item)}');
+    }
+  }
+  return buf.toString();
+}
+
+/// A plain scalar, or a double-quoted one if it holds characters (`"`, `:`)
+/// that would otherwise be ambiguous in YAML, matching confdb's docs.
+String _yamlScalar(Object? v) {
+  if (v is! String) return '$v';
+  if (v.isEmpty || v.contains('"') || v.contains(': ') || v.endsWith(':')) {
+    return '"${v.replaceAll(r'\', r'\\').replaceAll('"', r'\"')}"';
+  }
+  return v;
+}
 
 // ----------------------------------------------------------- import files
 
@@ -369,6 +576,7 @@ ConfdbSchema schemaFromHeaders(Map headers, Object? body) {
   if (account == null || name == null) throw const SchemaFormatException('Missing account-id or name');
   // Assertions from the `system` account are built into snapd.
   final builtIn = account == 'system';
+  final decoded = body == null ? null : decodeStorage(body);
   return ConfdbSchema(
     id: SchemaId(account, name),
     builtIn: builtIn,
@@ -376,7 +584,8 @@ ConfdbSchema schemaFromHeaders(Map headers, Object? body) {
     revision: builtIn ? null : int.tryParse('${headers['revision'] ?? '0'}'),
     summary: headers['summary'] as String? ?? '',
     views: decodeViews(headers['views'] ?? const {}),
-    storage: body == null ? const StorageNode.root([]) : decodeStorage(body),
+    storage: decoded?.storage ?? const StorageNode.root([]),
+    aliases: decoded?.aliases ?? const {},
   );
 }
 
