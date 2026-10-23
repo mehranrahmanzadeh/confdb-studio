@@ -11,6 +11,7 @@ import '../../widgets/cli_disclosure.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
 import '../schemas/schemas_section.dart';
+import '../schema_editor/naming_conventions_dialog.dart';
 import '../../state/account_names.dart';
 import '../../widgets/account_name.dart';
 
@@ -114,8 +115,9 @@ class _EnableState extends State<_Enable> {
 
 final _schemaName = RegExp(r'^[a-z0-9](-?[a-z0-9])*$');
 
-/// Default schema name per template.
-const _defaultNames = {'wifi': 'network', 'kv': 'settings'};
+/// Default schema name per template; templates without one (e.g. the
+/// minimal key/value starting point) leave the name for the user to fill in.
+const _defaultNames = {'wifi': 'network'};
 
 class _Choose extends StatefulWidget {
   const _Choose({required this.justEnabled});
@@ -168,7 +170,10 @@ class _ChooseState extends State<_Choose> {
     super.dispose();
   }
 
-  static String _templateSummary(String id) => schemaTemplates.firstWhere((t) => t.id == id).build(const SchemaId('', '')).summary;
+  /// Prefilled summary per template; blank for templates without a default
+  /// name (e.g. the minimal key/value starting point), for the user to fill in.
+  static String _templateSummary(String id) =>
+      _defaultNames.containsKey(id) ? schemaTemplates.firstWhere((t) => t.id == id).build(const SchemaId('', '')).summary : '';
 
   String? _nameError(String account) {
     final n = _name.text.trim();
@@ -279,7 +284,7 @@ class _ChooseState extends State<_Choose> {
             if (v == null) return;
             _import = false;
             _template = v;
-            if (!_nameEdited) _name.text = _defaultNames[v] ?? v;
+            if (!_nameEdited) _name.text = _defaultNames[v] ?? '';
             if (!_summaryEdited) _summary.text = _templateSummary(v);
           }),
           child: Column(
@@ -302,7 +307,7 @@ class _ChooseState extends State<_Choose> {
                     onTap: () => setState(() {
                       _import = false;
                       _template = t.id;
-                      if (!_nameEdited) _name.text = _defaultNames[t.id] ?? t.id;
+                      if (!_nameEdited) _name.text = _defaultNames[t.id] ?? '';
                       if (!_summaryEdited) _summary.text = _templateSummary(t.id);
                     }),
                     child: Padding(
@@ -361,7 +366,14 @@ class _ChooseState extends State<_Choose> {
           ],
           Semantics(
             header: true,
-            child: Text(widget.justEnabled ? 'Set up your first schema' : 'Create a schema', style: context.text.headlineMedium),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text(widget.justEnabled ? 'Set up your first schema' : 'Create a schema', style: context.text.headlineMedium),
+                const SizedBox(width: 4),
+                const NamingConventionsButton(),
+              ],
+            ),
           ),
           const SizedBox(height: 4),
           Text(

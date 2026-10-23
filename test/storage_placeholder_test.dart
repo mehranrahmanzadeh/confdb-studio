@@ -50,7 +50,7 @@ void main() {
       ['actuators', 'actuators.{key}', 'actuators.{key}.mode', 'actuators.{key}.manual-speed', 'actuators.{key}.auto-max-speed'],
     );
     // Decoding gives the same tree back, and the rule from the example covers it.
-    expect(_actuators(decodeStorage(jsonDecode(jsonEncode(encodeStorage(root))))), _expected);
+    expect(_actuators(decodeStorage(jsonDecode(jsonEncode(encodeStorage(root)))).storage), _expected);
     expect(resolveStoragePath(root, 'actuators.{act}[.mode={mode}].manual-speed')?.min, 0.1);
     expect(ruleCovers('actuators.{act}[.mode={mode}].mode', 'actuators.{key}.mode'), isTrue);
 
@@ -112,14 +112,14 @@ void main() {
 
     await menu('actuators', 'Add placeholder');
     expect(find.text('Add placeholder to actuators'), findsOneWidget);
-    await tester.enterText(find.widgetWithText(TextField, 'Key pattern (optional)'), _pattern);
+    await tester.enterText(find.widgetWithText(TextField, 'Placeholder pattern (optional)'), _pattern);
     await tester.tap(find.widgetWithText(TextField, 'Value type'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('map').last);
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Add'));
     await tester.pumpAndSettle();
-    expect(find.text('{key}'), findsOneWidget);
+    expect(find.text('<placeholder>'), findsOneWidget);
     expect(find.textContaining('keys match $_pattern'), findsOneWidget);
 
     await menu('actuators.{key}', 'Add child');

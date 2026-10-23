@@ -213,16 +213,16 @@ final shots = <Shot>[
     'storage-add-enum',
     const SchemaEditorRoute(networkId),
     act: (t) async {
-      await t.tap(find.byTooltip('Add storage path'));
+      await t.tap(find.byTooltip('Add storage path or alias'));
+      for (var i = 0; i < 10; i++) {
+        await t.pump(const Duration(milliseconds: 50));
+      }
+      await t.tap(find.text('Add storage path'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
       await t.enterText(find.widgetWithText(TextField, 'Key'), 'security');
-      await t.tap(find.widgetWithText(TextField, 'Type'));
-      for (var i = 0; i < 10; i++) {
-        await t.pump(const Duration(milliseconds: 50));
-      }
-      await t.tap(find.text('enum').last);
+      await t.tap(find.widgetWithText(SwitchListTile, 'Fixed choices'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
@@ -361,7 +361,7 @@ final shots = <Shot>[
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
-      await t.enterText(find.widgetWithText(TextField, 'Key pattern (optional)'), r'^[a-z](?:-?[a-z0-9])*$');
+      await t.enterText(find.widgetWithText(TextField, 'Placeholder pattern (optional)'), r'^[a-z](?:-?[a-z0-9])*$');
     },
   ),
   Shot('storage-menu-placeholder', const SchemaEditorRoute(networkId), act: (t) async => t.tap(find.byTooltip('Actions for wifi'))),

@@ -48,11 +48,13 @@ String? validateValue(StorageNode? node, String input, {ValueHint? hint}) {
     case StorageKind.int:
       final v = int.tryParse(s);
       if (v == null) return 'Must be a whole number';
+      if (node.isEnum && !node.choices.any((c) => int.tryParse(c) == v)) return 'Must be one of ${node.choices.join(', ')}';
       if (node.min != null && v < node.min!) return 'Must be at least ${node.min}';
       if (node.max != null && v > node.max!) return 'Must be at most ${node.max}';
     case StorageKind.number:
       final v = num.tryParse(s);
       if (v == null) return 'Must be a number';
+      if (node.isEnum && !node.choices.any((c) => num.tryParse(c) == v)) return 'Must be one of ${node.choices.join(', ')}';
       if (node.min != null && v < node.min!) return 'Must be at least ${node.min}';
       if (node.max != null && v > node.max!) return 'Must be at most ${node.max}';
     case StorageKind.bool:

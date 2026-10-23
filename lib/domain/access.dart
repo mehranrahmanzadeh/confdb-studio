@@ -18,8 +18,7 @@ List<ConfdbPlug> _plugsTouching(ConfdbSchema schema, List<SnapInfo> snaps, Set<S
       if (p.role == role &&
           p.state.isConnected &&
           p.view.schemaId == schema.id &&
-          (schema.view(p.view.view)?.rules.any((r) => storagePaths.any((sp) => ruleCovers(r.storage, sp) || ruleCovers(sp, r.storage))) ??
-              false))
+          (schema.view(p.view.view)?.rules.any((r) => storagePaths.any((sp) => ruleExposes(r, sp))) ?? false))
         p,
 ];
 
@@ -120,7 +119,7 @@ Future<AccessDiagnosis> diagnoseAccess({
   }
 
   ConfdbSchema? schemaFor(ConfdbPlug p) => schemas.where((s) => s.id == p.view.schemaId).firstOrNull;
-  ViewRule? ruleFor(ConfdbPlug p) => schemaFor(p)?.view(p.view.view)?.rules.where((r) => ruleCovers(r.storage, storagePath)).firstOrNull;
+  ViewRule? ruleFor(ConfdbPlug p) => schemaFor(p)?.view(p.view.view)?.rules.where((r) => ruleExposes(r, storagePath)).firstOrNull;
 
   if (snap.plugs.isEmpty) {
     checks.add(AccessCheck(title: titles[0], state: CheckState.failed, text: '`${snap.name}` has no confdb plugs.'));

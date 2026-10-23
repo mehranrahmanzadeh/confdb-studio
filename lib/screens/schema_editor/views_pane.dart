@@ -9,10 +9,12 @@ import '../../widgets/fields.dart';
 
 final _viewName = RegExp(r'^[a-z0-9](-?[a-z0-9])*$');
 
-String? validateViewName(String name, ConfdbSchema draft) {
+/// Validates a view name, ignoring a clash with [ignoring] itself (the
+/// view's current name, when renaming an existing view).
+String? validateViewName(String name, ConfdbSchema draft, {String? ignoring}) {
   if (name.isEmpty) return 'Enter a name';
   if (!_viewName.hasMatch(name)) return 'Lowercase letters, digits and single dashes';
-  if (draft.view(name) != null) return 'A view with this name exists';
+  if (name != ignoring && draft.view(name) != null) return 'A view with this name exists';
   return null;
 }
 
@@ -40,6 +42,10 @@ class _ViewsPaneState extends State<ViewsPane> {
   bool _adding = false;
   final _name = TextEditingController();
   String? _error;
+
+  /// Views whose rules are collapsed even while selected (toggled through
+  /// the expand/collapse arrow); absent means expanded by default.
+  final _collapsed = <String>{};
 
   @override
   void dispose() {
@@ -120,11 +126,20 @@ class _ViewsPaneState extends State<ViewsPane> {
   Widget _view(BuildContext context, ViewDef v) {
     final c = context.colors;
     final sel = v.name == widget.selected;
+    final expanded = sel && !_collapsed.contains(v.name);
     final fg = sel ? c.onSecondaryContainer : c.onSurface;
     final badRules = {
       for (final i in widget.issues)
         if (i.isError && i.view == v.name) i.request,
     };
+    void toggle() => setState(() {
+      if (sel) {
+        if (!_collapsed.remove(v.name)) _collapsed.add(v.name);
+      } else {
+        _collapsed.remove(v.name);
+        widget.onSelect(v.name);
+      }
+    });
     return Padding(
       padding: const EdgeInsets.only(bottom: 2),
       child: Column(
@@ -132,7 +147,7 @@ class _ViewsPaneState extends State<ViewsPane> {
         children: [
           Semantics(
             selected: sel,
-            expanded: sel,
+            expanded: expanded,
             child: Material(
               color: sel ? c.secondaryContainer : Colors.transparent,
               borderRadius: BorderRadius.circular(6),
@@ -146,7 +161,20 @@ class _ViewsPaneState extends State<ViewsPane> {
                     padding: const EdgeInsets.fromLTRB(8, 6, 12, 6),
                     child: Row(
                       children: [
-                        Icon(sel ? AppIcons.expand : AppIcons.chevronRight, size: 18, color: fg),
+                        Semantics(
+                          button: true,
+                          container: true,
+                          label: '${expanded ? 'Collapse' : 'Expand'} ${v.name}',
+                          excludeSemantics: true,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(4),
+                            onTap: toggle,
+                            child: Padding(
+                              padding: const EdgeInsets.all(2),
+                              child: Icon(expanded ? AppIcons.expand : AppIcons.chevronRight, size: 18, color: fg),
+                            ),
+                          ),
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Column(
@@ -176,7 +204,7 @@ class _ViewsPaneState extends State<ViewsPane> {
               ),
             ),
           ),
-          if (sel)
+          if (expanded)
             // Rules as a small nested tree: a guide line under the view, then
             // each request path with the storage path it maps to beneath it.
             Container(

@@ -274,14 +274,25 @@ class _Header extends StatelessWidget {
   );
 }
 
-class _SchemaTable extends StatelessWidget {
+class _SchemaTable extends StatefulWidget {
   const _SchemaTable({required this.groups, required this.data, required this.store});
   final Map<String, List<ConfdbSchema>> groups;
   final SchemasData data;
   final StoreController store;
 
   @override
+  State<_SchemaTable> createState() => _SchemaTableState();
+}
+
+class _SchemaTableState extends State<_SchemaTable> {
+  final _collapsed = <String>{};
+
+  SchemasData get data => widget.data;
+  StoreController get store => widget.store;
+
+  @override
   Widget build(BuildContext context) {
+    final groups = widget.groups;
     final c = context.colors;
     final head = tableHeaderStyle(context);
     Widget cells(List<Widget> w) => Row(
@@ -329,22 +340,38 @@ class _SchemaTable extends StatelessWidget {
                 ]),
               ),
               for (final g in groups.entries) ...[
-                GroupHeaderRow(
-                  minHeight: 40,
-                  child: Row(
-                    children: [
-                      AccountName(g.key, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w600)),
-                      const SizedBox(width: 8),
-                      Text(
-                        g.value.every((s) => s.builtIn)
-                            ? '${plural(g.value.length, 'schema')} · built-in, read-only'
-                            : plural(g.value.length, 'schema'),
-                        style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
-                      ),
-                    ],
+                InkWell(
+                  onTap: () => setState(() {
+                    if (!_collapsed.add(g.key)) _collapsed.remove(g.key);
+                  }),
+                  child: GroupHeaderRow(
+                    minHeight: 40,
+                    child: Row(
+                      children: [
+                        Semantics(
+                          button: true,
+                          label: '${_collapsed.contains(g.key) ? 'Expand' : 'Collapse'} ${g.key}',
+                          excludeSemantics: true,
+                          child: Icon(
+                            _collapsed.contains(g.key) ? AppIcons.chevronRight : AppIcons.expand,
+                            size: 18,
+                            color: c.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        AccountName(g.key, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w600)),
+                        const SizedBox(width: 8),
+                        Text(
+                          g.value.every((s) => s.builtIn)
+                              ? '${plural(g.value.length, 'schema')} · built-in, read-only'
+                              : plural(g.value.length, 'schema'),
+                          style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                for (final s in g.value) _row(context, s, cells),
+                if (!_collapsed.contains(g.key)) for (final s in g.value) _row(context, s, cells),
               ],
             ],
           ),
