@@ -253,6 +253,15 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
+  snapstore_auth:
+    dependency: "direct main"
+    description:
+      path: "."
+      ref: "v0.2.0"
+      resolved-ref: "94af884f3bc265d50802897acf0cd1f3bdea13e8"
+      url: "https://github.com/ogra1/snapstore-auth.git"
+    source: git
+    version: "0.2.0"
   source_span:
     dependency: transitive
     description:
