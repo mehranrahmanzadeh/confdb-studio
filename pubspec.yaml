@@ -40,6 +40,7 @@ dependencies:
     git:
       url: https://github.com/ogra1/snapstore-auth.git
       ref: v0.2.0
+  showcaseview: ^5.1.0
 
 dev_dependencies:
   flutter_test:

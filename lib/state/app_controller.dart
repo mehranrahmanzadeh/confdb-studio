@@ -11,17 +11,17 @@ sealed class AppRoute {
 }
 
 class OverviewRoute extends AppRoute {
-  const OverviewRoute();
+  const OverviewRoute({this.justEnabled = false});
+
+  /// Shows the "Confdb enabled" confirmation once, right after enabling.
+  final bool justEnabled;
   @override
   Destination get destination => Destination.overview;
 }
 
 class OnboardingRoute extends AppRoute {
-  const OnboardingRoute({this.choose = false, this.justEnabled = false});
+  const OnboardingRoute({this.choose = false});
   final bool choose;
-
-  /// Shows the "Confdb enabled" confirmation on the choose step.
-  final bool justEnabled;
   @override
   Destination get destination => Destination.overview;
 }

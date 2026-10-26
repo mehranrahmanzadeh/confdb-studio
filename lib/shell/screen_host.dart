@@ -12,7 +12,7 @@ import '../state/app_controller.dart';
 
 /// Maps a route to its screen.
 Widget buildScreen(AppRoute route) => switch (route) {
-  OverviewRoute() => const OverviewScreen(),
+  OverviewRoute() => OverviewScreen(route: route),
   DataRoute() => DataExplorerScreen(route: route),
   AccessRoute() => AccessScreen(route: route),
   // One screen for both steps, so the draft and header stay put between them.

@@ -7,6 +7,7 @@ import '../../data/models.dart';
 import '../../domain/analysis.dart';
 import '../../domain/storage_edit.dart';
 import '../../shell/app_shell.dart';
+import '../../shell/product_tour.dart';
 import '../../shell/screen_host.dart';
 import '../../state/app_controller.dart';
 import '../../state/app_scope.dart';
@@ -156,6 +157,9 @@ class _EditorState extends State<_Editor> {
         if (mounted) context.app.replace(SchemaEditorRoute(id, view: _view, focusStoragePath: _focusPath));
       });
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ProductTour.startIfNeeded(context, 'editor', TourKeys.editor);
+    });
   }
 
   @override
@@ -486,36 +490,48 @@ class _EditorState extends State<_Editor> {
     final view = _view == null ? null : _draft.view(_view!);
     final compact = isCompact(context);
 
-    final center = _Center(
-      draft: _draft,
-      view: view,
-      issues: issues,
-      focusRule: _focusRule,
-      onRules: _setRules,
-      onQuickFix: _quickFix,
-      onGoToRule: (v, r) => _selectView(v, rule: r),
-      onShowInStorage: _showInStorage,
-      onDeleteView: view == null ? null : () => _deleteView(view),
-      onRenameView: view == null ? null : (name) => _renameView(view, name),
-      onSetSummary: view == null ? null : (summary) => _setViewSummary(view, summary),
-      onSetParameters: view == null ? null : (parameters) => _setViewParameters(view, parameters),
-      compactViews: compact ? ViewsSelect(draft: _draft, selected: _view, issues: issues, onSelect: _selectView, onAdd: _addView) : null,
+    final center = tourShowcase(
+      context,
+      key: TourKeys.editorRules,
+      title: 'Views & rules',
+      description: 'Pick a view, then define the rules mapping requests to storage paths.',
+      child: _Center(
+        draft: _draft,
+        view: view,
+        issues: issues,
+        focusRule: _focusRule,
+        onRules: _setRules,
+        onQuickFix: _quickFix,
+        onGoToRule: (v, r) => _selectView(v, rule: r),
+        onShowInStorage: _showInStorage,
+        onDeleteView: view == null ? null : () => _deleteView(view),
+        onRenameView: view == null ? null : (name) => _renameView(view, name),
+        onSetSummary: view == null ? null : (summary) => _setViewSummary(view, summary),
+        onSetParameters: view == null ? null : (parameters) => _setViewParameters(view, parameters),
+        compactViews: compact ? ViewsSelect(draft: _draft, selected: _view, issues: issues, onSelect: _selectView, onAdd: _addView) : null,
+      ),
     );
-    final storage = StoragePane(
-      draft: _draft,
-      issues: issues,
-      focusPath: _focusPath,
-      json: _json,
-      onJson: (v) => setState(() => _json = v),
-      onStorage: (root, aliases) => _update(_draft.copyWith(storage: root, aliases: aliases)),
-      onAdd: _addNode,
-      onAddAlias: _addAlias,
-      onAddPlaceholder: _addPlaceholder,
-      onEdit: _editNode,
-      onDelete: _deleteNode,
-      onEditAlias: _editAlias,
-      onDeleteAlias: _deleteAlias,
-      compact: compact,
+    final storage = tourShowcase(
+      context,
+      key: TourKeys.editorStorage,
+      title: 'Storage tree',
+      description: 'Shape the storage tree that the views above read and write.',
+      child: StoragePane(
+        draft: _draft,
+        issues: issues,
+        focusPath: _focusPath,
+        json: _json,
+        onJson: (v) => setState(() => _json = v),
+        onStorage: (root, aliases) => _update(_draft.copyWith(storage: root, aliases: aliases)),
+        onAdd: _addNode,
+        onAddAlias: _addAlias,
+        onAddPlaceholder: _addPlaceholder,
+        onEdit: _editNode,
+        onDelete: _deleteNode,
+        onEditAlias: _editAlias,
+        onDeleteAlias: _deleteAlias,
+        compact: compact,
+      ),
     );
 
     final play = _playRoute;
@@ -593,7 +609,13 @@ class _EditorState extends State<_Editor> {
               : LayoutBuilder(
                   builder: (context, constraints) => _resizableRow(
                     constraints.maxWidth,
-                    ViewsPane(draft: _draft, selected: _view, issues: issues, onSelect: _selectView, onAdd: _addView),
+                    tourShowcase(
+                      context,
+                      key: TourKeys.editorViews,
+                      title: 'Views',
+                      description: 'Views are the endpoints snaps read and write confdb through; pick one to edit its rules.',
+                      child: ViewsPane(draft: _draft, selected: _view, issues: issues, onSelect: _selectView, onAdd: _addView),
+                    ),
                     center,
                     storage,
                   ),
@@ -705,9 +727,15 @@ class _Header extends StatelessWidget {
                 _EditorStep.preview || _EditorStep.signingKey => TertiaryButton(label: 'Back', icon: AppIcons.back, onPressed: onBack),
               },
               switch (step) {
-                _EditorStep.schema => Tooltip(
-                  message: errors > 0 ? 'Fix the lint errors first' : 'Preview the full assertion, then sign',
-                  child: PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
+                _EditorStep.schema => tourShowcase(
+                  context,
+                  key: TourKeys.editorNext,
+                  title: 'Preview & sign',
+                  description: 'Once the schema is ready, preview the assertion and sign it from here.',
+                  child: Tooltip(
+                    message: errors > 0 ? 'Fix the lint errors first' : 'Preview the full assertion, then sign',
+                    child: PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
+                  ),
                 ),
                 _EditorStep.preview => Tooltip(
                   message: errors > 0 ? 'Fix the lint errors first' : 'Pick the key to sign with',
