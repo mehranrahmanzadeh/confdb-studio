@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # Builds the Rust auth backend (libsnapstore_auth) and stages it next to the
 # Flutter app's Linux executable so the FFI client (lib/data/store/
-# rust_auth_client.dart) finds it at runtime. Run this before `flutter run`
-# or packaging — the app no longer uses tool/store_helper.py/surl.
+# snapstore_auth_client.dart) finds it at runtime. Run this before
+# `flutter run` or packaging — the app no longer uses
+# tool/store_helper.py/surl.
 #
 # Usage:
 #   ./scripts/build_rust_backend.sh [path/to/snapstore-auth]
 #
-# The default crate location is the vendored `rust/` directory at the repo
-# root (pass a path to build a different checkout instead). The resulting
-# shared library is copied to
+# The crate itself isn't vendored in this repo: `pubspec.yaml` pulls
+# `snapstore_auth` (https://github.com/ogra1/snapstore-auth) as a pinned git
+# dependency, and this script builds straight from the checkout `flutter pub
+# get` already placed in the pub cache (pass a path to build a different
+# checkout instead). The resulting shared library is copied to
 #   linux/rust/libsnapstore_auth.so
 # and into build/linux/x64/<config>/bundle/lib/libsnapstore_auth.so when
 # that tree exists — the actual runtime location `flutter run` uses
@@ -18,8 +21,30 @@
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-CRATE_DIR="${1:-$APP_DIR/rust}"
 export PATH="$HOME/.cargo/bin:$PATH"
+
+# Resolve the pinned `snapstore_auth` git checkout `flutter pub get` already
+# fetched, unless a path override was given.
+CRATE_DIR="${1:-}"
+if [ -z "$CRATE_DIR" ]; then
+  PACKAGE_CONFIG="$APP_DIR/.dart_tool/package_config.json"
+  if [ ! -f "$PACKAGE_CONFIG" ]; then
+    echo "run 'flutter pub get' first (missing $PACKAGE_CONFIG)" >&2
+    exit 1
+  fi
+  CRATE_DIR="$(python3 -c "
+import json, sys
+from urllib.request import url2pathname
+from urllib.parse import urlsplit
+with open('$PACKAGE_CONFIG') as f:
+    config = json.load(f)
+for pkg in config['packages']:
+    if pkg['name'] == 'snapstore_auth':
+        print(url2pathname(urlsplit(pkg['rootUri']).path))
+        sys.exit(0)
+sys.exit('snapstore_auth is not a resolved dependency; check pubspec.yaml')
+")"
+fi
 
 echo ">> cargo build --release ($CRATE_DIR)"
 cd "$CRATE_DIR"

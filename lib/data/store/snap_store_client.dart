@@ -5,19 +5,19 @@ import 'dart:io';
 import '../../domain/schema_codec.dart';
 import '../app_data.dart';
 import '../models.dart';
-import 'rust_auth_client.dart';
+import 'snapstore_auth_client.dart';
 import 'store_auth_client.dart';
 
 /// The Snap Store's confdb-schemas API (`/api/v2/confdb-schemas` on the
-/// dashboard), reached through the vendored `rust/` `snapstore-auth` crate
-/// (see [RustAuthClient]), which handles Ubuntu One SSO login, 2FA, and
+/// dashboard), reached through the `snapstore-auth` Rust/FFI backend (see
+/// [SnapstoreAuthClient]), which handles Ubuntu One SSO login, 2FA, and
 /// macaroon-signed requests.
 ///
 /// The saved login is kept in `store.json` under [appDataPath] (readable
 /// only by the user), replacing the old surl-based `store.surl`.
 class SnapStoreClient {
   SnapStoreClient({StoreAuthClient? authClient, String? authFile})
-    : authClient = authClient ?? RustAuthClient(),
+    : authClient = authClient ?? SnapstoreAuthClient(),
       authFile = authFile ?? appDataPath('store.json');
 
   final StoreAuthClient authClient;

@@ -54,10 +54,11 @@ class StoreAuthSession {
 
 /// Ubuntu One SSO login + macaroon-authenticated Snap Store requests.
 ///
-/// [RustAuthClient] is the real (FFI, vendored `rust/`) implementation;
-/// tests use a fake. The whole authentication session (which store/login
-/// URLs are in play) is process-wide and fixed by whichever [StoreEnv] the
-/// *first* call in the process uses — see [RustAuthClient]'s class doc.
+/// [SnapstoreAuthClient] is the real (FFI, `snapstore-auth` package)
+/// implementation; tests use a fake. The whole authentication session
+/// (which store/login URLs are in play) is process-wide and fixed by
+/// whichever [StoreEnv] the *first* call in the process uses — see
+/// [SnapstoreAuthClient]'s class doc.
 abstract interface class StoreAuthClient {
   /// Ubuntu One login. Throws [ConfdbException] with
   /// [ConfdbErrorKind.twoFactorRequired] when the account needs a one-time

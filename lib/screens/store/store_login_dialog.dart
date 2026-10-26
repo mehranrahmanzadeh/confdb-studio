@@ -60,7 +60,7 @@ class _StoreLoginDialogState extends State<_StoreLoginDialog> {
   /// Tells the backend to abandon a flow parked waiting on a 2FA code
   /// before closing, so the state machine is back in `Idle` and the next
   /// sign-in attempt doesn't collide with this one (see
-  /// `RustAuthClient.cancelLogin`'s doc comment).
+  /// `SnapstoreAuthClient.cancelLogin`'s doc comment).
   Future<void> _cancel() async {
     await widget.store.cancelLogin();
     if (mounted) Navigator.of(context).pop(false);

@@ -106,10 +106,11 @@ foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
     COMPONENT Runtime)
 endforeach(bundled_library)
 
-# The vendored Snap Store auth backend (rust/, built by
-# scripts/build_rust_backend.sh into linux/rust/). Only installed when it
-# has actually been built, so a plain `cmake --build` without that step
-# still succeeds (the FFI client reports a clear error if it's missing).
+# The Snap Store auth backend (the `snapstore_auth` git dependency in
+# pubspec.yaml, built by scripts/build_rust_backend.sh into linux/rust/).
+# Only installed when it has actually been built, so a plain `cmake --build`
+# without that step still succeeds (the FFI client reports a clear error if
+# it's missing).
 set(SNAPSTORE_AUTH_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/rust/libsnapstore_auth.so")
 if(EXISTS "${SNAPSTORE_AUTH_LIBRARY}")
   install(FILES "${SNAPSTORE_AUTH_LIBRARY}"

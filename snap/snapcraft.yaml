@@ -52,10 +52,25 @@ parts:
     build-packages:
       - pkg-config
       - libgtk-3-dev
+    override-pull: |
+      craftctl default
+      # `linux/rust/` is a local, gitignored staging dir
+      # (scripts/build_rust_backend.sh) that a dev's working tree may
+      # already have populated. Strip it so this part never bundles its own
+      # copy of `libsnapstore_auth.so` via linux/CMakeLists.txt's
+      # conditional install — the `rust-auth` part is the only source of
+      # that file, or staging fails with a same-file-different-contents
+      # conflict between the two parts.
+      rm -rf linux/rust
 
   rust-auth:
     plugin: nil
-    source: rust
+    # Not vendored in this repo: built straight from the same pinned
+    # `snapstore_auth` git dependency `pubspec.yaml` declares (keep the
+    # tag/ref in sync with that file).
+    source: https://github.com/ogra1/snapstore-auth.git
+    source-type: git
+    source-tag: v0.2.0
     build-packages:
       - curl
       - gcc
