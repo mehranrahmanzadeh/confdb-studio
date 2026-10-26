@@ -547,6 +547,14 @@ class SnapdRepository implements ConfdbRepository {
     if (res.isError) throw _error(res, 'assertions');
   }
 
+  /// Acks several assertions in one `/v2/assertions` request (snapd accepts a
+  /// stream of back-to-back assertions): avoids one admin prompt per
+  /// assertion when [_write] has to elevate.
+  Future<void> _ackAll(List<String> assertions) async {
+    if (assertions.isEmpty) return;
+    await _ack(assertions.map((a) => a.trim()).join('\n\n'));
+  }
+
   /// `snap known [--remote] <type> <key>=<value>…`: the assertion text, or
   /// null if snapd (or, with [remote], the store) doesn't have it.
   Future<String?> _known(String type, Map<String, String> keys, {bool remote = false}) async {
@@ -769,11 +777,10 @@ class SnapdRepository implements ConfdbRepository {
     }
     onPhase?.call(SignPhase.acknowledging);
     // snapd only accepts the schema once it knows the signing key, so
-    // acknowledge the account and account-key from the store first.
-    for (final prerequisite in await _prerequisites(assertion, key)) {
-      await _ack(prerequisite);
-    }
-    await _ack(assertion);
+    // acknowledge the account and account-key from the store first — in the
+    // same request as the schema itself, so admin elevation (if needed)
+    // prompts once instead of once per assertion.
+    await _ackAll([...await _prerequisites(assertion, key), assertion]);
     await _drafts.discard(draft.id);
     _notify();
   }
@@ -816,10 +823,7 @@ class SnapdRepository implements ConfdbRepository {
         kind: ConfdbErrorKind.notFound,
       );
     }
-    for (final prerequisite in await _prerequisites(assertion, null)) {
-      await _ack(prerequisite);
-    }
-    await _ack(assertion);
+    await _ackAll([...await _prerequisites(assertion, null), assertion]);
     _notify();
   }
 

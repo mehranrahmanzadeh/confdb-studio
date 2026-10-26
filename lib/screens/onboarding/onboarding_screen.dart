@@ -68,6 +68,7 @@ class _EnableState extends State<_Enable> {
           Container(
             width: 48,
             height: 48,
+            alignment: Alignment.center,
             decoration: BoxDecoration(color: c.surfaceContainerHigh, borderRadius: BorderRadius.circular(ConfdbRadii.card)),
             child: Icon(AppIcons.data, color: c.onSurfaceVariant),
           ),

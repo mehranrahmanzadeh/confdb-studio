@@ -42,6 +42,7 @@ class AccountButton extends StatelessWidget {
             Container(
               width: 40,
               height: 40,
+              alignment: Alignment.center,
               decoration: BoxDecoration(color: c.surfaceContainerHigh, shape: BoxShape.circle),
               child: Icon(Icons.person_outline, color: session?.signedIn ?? false ? c.onSurface : c.onSurfaceVariant),
             ),

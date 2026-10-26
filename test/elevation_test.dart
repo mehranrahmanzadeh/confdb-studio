@@ -95,15 +95,18 @@ void main() {
       }
     }
 
-    List<String?> acked(_Recording socket) => [
+    List<String> acked(_Recording socket) => [
       for (final c in socket.calls)
-        if (c.$2 == '/v2/assertions') SnapdRepository.assertionHeaders(c.$3! as String)['type'],
+        if (c.$2 == '/v2/assertions')
+          for (final part in (c.$3! as String).split('\n\n'))
+            ?SnapdRepository.assertionHeaders(part)['type'],
     ];
 
-    test('acknowledges the account and account-key before the schema', () async {
+    test('acknowledges the account and account-key before the schema, in a single request', () async {
       final (socket, error) = await run(keyOwner: 'acme');
       expect(error, isNull);
       expect(acked(socket), ['account', 'account-key', 'confdb-schema']);
+      expect(socket.calls.where((c) => c.$2 == '/v2/assertions'), hasLength(1));
     });
 
     test('explains an unregistered key', () async {
