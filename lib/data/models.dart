@@ -172,6 +172,32 @@ class ViewRule {
   int get hashCode => Object.hash(request, storage, access, Object.hashAll(content));
 }
 
+/// Allowed `presence` values for a view's declared parameter.
+const parameterPresences = ['optional', 'required-on-read', 'required-on-write', 'required'];
+
+/// A view's declared field-filter parameter (the `parameters` stanza): a
+/// `{param}` used in a storage path's `[.field={param}]` must name one of
+/// these. Parameters used without being declared are implicitly `optional`.
+@immutable
+class ParameterDef {
+  const ParameterDef({this.summary, this.presence = 'optional'});
+
+  /// Context on how the parameter may be used to filter data.
+  final String? summary;
+
+  /// Whether the user must constrain it, and for which access.
+  final String presence;
+
+  ParameterDef copyWith({String? summary, String? presence}) =>
+      ParameterDef(summary: summary ?? this.summary, presence: presence ?? this.presence);
+
+  @override
+  bool operator ==(Object other) => other is ParameterDef && other.summary == summary && other.presence == presence;
+
+  @override
+  int get hashCode => Object.hash(summary, presence);
+}
+
 @immutable
 class ViewDef {
   const ViewDef({required this.name, required this.rules, this.summary, this.parameters = const {}});
@@ -180,9 +206,8 @@ class ViewDef {
   final List<ViewRule> rules;
   final String? summary;
 
-  /// The `parameters` stanza: field-filter parameter → presence (`optional`,
-  /// `required-on-read`, `required-on-write` or `required`).
-  final Map<String, String> parameters;
+  /// The `parameters` stanza: field-filter parameter name → its declaration.
+  final Map<String, ParameterDef> parameters;
 
   /// The broadest access any rule grants; shown next to the view name.
   RuleAccess get access => rules.isEmpty ? RuleAccess.read : rules.map((r) => r.access).reduce((a, b) => a.union(b));
@@ -194,8 +219,12 @@ class ViewDef {
     return null;
   }
 
-  ViewDef copyWith({String? name, List<ViewRule>? rules, String? summary}) =>
-      ViewDef(name: name ?? this.name, rules: rules ?? this.rules, summary: summary ?? this.summary, parameters: parameters);
+  ViewDef copyWith({String? name, List<ViewRule>? rules, String? summary, Map<String, ParameterDef>? parameters}) => ViewDef(
+    name: name ?? this.name,
+    rules: rules ?? this.rules,
+    summary: summary ?? this.summary,
+    parameters: parameters ?? this.parameters,
+  );
 }
 
 enum StorageKind { map, string, int, number, bool, array, any }

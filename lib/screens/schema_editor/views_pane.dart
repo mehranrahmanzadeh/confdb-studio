@@ -73,7 +73,7 @@ class _ViewsPaneState extends State<ViewsPane> {
     final c = context.colors;
     final views = widget.draft.views;
     return Container(
-      decoration: BoxDecoration(color: c.surfaceContainerLow),
+      decoration: BoxDecoration(color: c.surface),
       child: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         children: [

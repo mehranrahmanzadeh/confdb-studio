@@ -115,7 +115,7 @@ class StoragePane extends StatelessWidget {
           );
     return Container(
       decoration: BoxDecoration(
-        color: c.surfaceContainerLow,
+        color: c.surface,
         border: compact ? Border(top: BorderSide(color: c.outlineVariant)) : null,
       ),
       padding: const EdgeInsets.all(16),
@@ -269,10 +269,15 @@ class _TreeState extends State<_Tree> {
       final users = draft.viewsUsing(path);
       final writeOnly = users.isNotEmpty && users.every((u) => !u.$2.access.canRead);
       final placeholder = path.split('.').last == StorageNode.placeholderKey;
-      final keyPattern = placeholder ? draft.storage.lookup(path.substring(0, path.lastIndexOf('.')))?.keys?.pattern : null;
+      final keysNode = placeholder ? draft.storage.lookup(path.substring(0, path.lastIndexOf('.')))?.keys : null;
       final arrayElement = splitTreePath(path).last == StorageNode.indexKey;
       final sub = [
-        if (placeholder) keyPattern == null ? 'any <placeholder>' : 'keys match $keyPattern',
+        if (placeholder)
+          keysNode?.aliasRef != null
+              ? 'keys match alias `${keysNode!.aliasRef}`'
+              : keysNode?.pattern == null
+              ? 'any <placeholder>'
+              : 'keys match ${keysNode!.pattern}',
         if (arrayElement) 'one per array element',
         if (warn) 'Warning: not exposed by any view',
         if (writeOnly) 'write-only through ${users.map((u) => u.$1.name).toSet().join(', ')}',
@@ -311,6 +316,11 @@ class _TreeState extends State<_Tree> {
           icon: const Icon(Icons.more_vert, size: 18),
         ),
       );
+      // Expandable nodes toggle their children when tapped anywhere on the row;
+      // editing them is still reachable via the "..." menu. Non-expandable nodes
+      // (leaves and empty maps) open the edit dialog on tap instead, since there's
+      // nothing to collapse.
+      final expandable = node.isMap && node.children.isNotEmpty;
       rows.add(
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -319,11 +329,19 @@ class _TreeState extends State<_Tree> {
               child: InkWell(
                 mouseCursor: arrayElement ? MouseCursor.defer : WidgetStateMouseCursor.clickable,
                 borderRadius: BorderRadius.circular(8),
-                onTap: arrayElement ? null : () => onEdit(path),
+                onTap: arrayElement
+                    ? null
+                    : expandable
+                    ? () => setState(() {
+                        if (!_collapsed.add(path)) _collapsed.remove(path);
+                      })
+                    : () => onEdit(path),
                 child: Semantics(
                   button: !arrayElement,
                   label: arrayElement
                       ? 'Array elements: ${node.typeLabel}'
+                      : expandable
+                      ? '${_collapsed.contains(path) ? 'Expand' : 'Collapse'} ${node.displayKey}'
                       : 'Edit ${node.displayKey}: ${node.typeLabel}, ${used == 0 ? 'no views' : plural(used, 'view')}${warn ? ', not exposed' : ''}',
                   child: Container(
                     padding: EdgeInsets.fromLTRB(8 + depth * 20.0, 6, 8, 6),
@@ -342,21 +360,15 @@ class _TreeState extends State<_Tree> {
                           children: [
                             Opacity(
                               opacity: node.isMap ? 1 : 0,
-                              child: node.isMap && node.children.isNotEmpty
+                              child: expandable
                                   ? Semantics(
                                       button: true,
                                       label: '${_collapsed.contains(path) ? 'Expand' : 'Collapse'} ${node.displayKey}',
                                       excludeSemantics: true,
-                                      child: InkWell(
-                                        borderRadius: BorderRadius.circular(4),
-                                        onTap: () => setState(() {
-                                          if (!_collapsed.add(path)) _collapsed.remove(path);
-                                        }),
-                                        child: Icon(
-                                          _collapsed.contains(path) ? AppIcons.chevronRight : AppIcons.expand,
-                                          size: 16,
-                                          color: c.onSurfaceVariant,
-                                        ),
+                                      child: Icon(
+                                        _collapsed.contains(path) ? AppIcons.chevronRight : AppIcons.expand,
+                                        size: 16,
+                                        color: c.onSurfaceVariant,
                                       ),
                                     )
                                   : Icon(AppIcons.expand, size: 16, color: c.onSurfaceVariant),

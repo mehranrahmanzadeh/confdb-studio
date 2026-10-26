@@ -64,6 +64,48 @@ void main() {
     expect(find.text('Back'), findsNothing);
   });
 
+  testWidgets('a signed schema no longer shows "New" badges when reopened', (tester) async {
+    final repo = FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero));
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(ConfdbStudioApp(repository: repo, initialRoute: const SchemaEditorRoute(networkId)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.textContaining('Add wifi.signal'));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('New'), findsOneWidget, reason: 'the storage tree flags the field added in this draft');
+
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('acme-release'));
+    await tester.pumpAndSettle();
+    await tester.tap(button('Sign & Acknowledge'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.widgetWithText(FilledButton, 'Sign and acknowledge'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Sign and acknowledge'));
+    await tester.pumpAndSettle();
+    expect(find.byType(PlaygroundPanel), findsOneWidget);
+
+    // Leaving for the overview used to flush the stale pre-sign draft back
+    // to disk, resurrecting the "New" badges the sign had just cleared.
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    expect(find.byType(OverviewScreen), findsOneWidget);
+    final drafts = await tester.runAsync(repo.listDrafts);
+    expect(
+      drafts!.where((d) => d.id == networkId).firstOrNull?.addedInDraft ?? const {},
+      isEmpty,
+      reason: 'nothing is pending after signing: the signed paths aren’t "new" anymore',
+    );
+
+    await tester.tap(find.text('network'));
+    await tester.pumpAndSettle();
+    expect(find.text('New'), findsNothing, reason: 'the just-signed revision has nothing newly added');
+  });
+
   testWidgets('a snap with no plug for the view gets a guide to add one', (tester) async {
     await open(tester, const PlaygroundRoute(networkId, view: 'wifi-admin', snap: 'browser-proxy'));
     expect(find.text('No plug for this view'), findsWidgets);

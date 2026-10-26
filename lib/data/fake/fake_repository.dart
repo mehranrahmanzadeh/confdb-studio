@@ -554,6 +554,7 @@ class FakeConfdbRepository implements ConfdbRepository {
       signedBy: draft.id.account,
       views: draft.views,
       storage: draft.storage,
+      aliases: draft.aliases,
     );
     if (existing < 0) {
       _schemas.insert(0, signed);

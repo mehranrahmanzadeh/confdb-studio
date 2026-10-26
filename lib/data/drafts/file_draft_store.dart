@@ -55,6 +55,7 @@ class FileDraftStore {
       summary: s.summary,
       views: s.views,
       storage: s.storage,
+      aliases: s.aliases,
       isDraft: true,
       baseRevision: json['x-studio-base-revision'] as int?,
       addedInDraft: {for (final p in (json['x-studio-added-in-draft'] as List? ?? const [])) '$p'},

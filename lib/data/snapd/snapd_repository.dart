@@ -230,6 +230,7 @@ class SnapdRepository implements ConfdbRepository {
       summary: parsed.summary,
       views: parsed.views,
       storage: parsed.storage,
+      aliases: parsed.aliases,
       isDraft: true,
       baseRevision: existing?.revision,
     );

@@ -133,7 +133,7 @@ void main() {
         ],
       },
     });
-    expect(views.single.parameters, {'zone': 'required-on-read'});
+    expect(views.single.parameters, {'zone': const ParameterDef(presence: 'required-on-read')});
     expect(views.single.rules.last.request, 'list[{n}]', reason: 'nested `[` paths join without a dot');
     expect((encodeViews(views)['control']! as Map)['parameters'], {
       'mode': <String, Object?>{},

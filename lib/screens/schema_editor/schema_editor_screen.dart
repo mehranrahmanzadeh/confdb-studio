@@ -27,6 +27,7 @@ import 'preview_panel.dart';
 import 'rules_table.dart';
 import 'storage_node_dialog.dart';
 import 'storage_pane.dart';
+import 'view_parameters_dialog.dart';
 import 'views_pane.dart';
 
 /// How many views map each storage leaf.
@@ -189,6 +190,14 @@ class _EditorState extends State<_Editor> {
     await context.repo.saveDraft(_draft);
   }
 
+  /// After signing, the signed revision is acknowledged and its draft
+  /// discarded; stop treating the draft's storage paths as newly added, so
+  /// stale "New" badges don't linger when coming back to this step.
+  void _onSigned(int revision) {
+    _save?.cancel();
+    setState(() => _draft = _draft.copyWith(baseRevision: revision, addedInDraft: const {}));
+  }
+
   void _selectView(String name, {String? rule}) {
     setState(() {
       _view = name;
@@ -203,6 +212,10 @@ class _EditorState extends State<_Editor> {
 
   void _setViewSummary(ViewDef v, String summary) {
     _update(_draft.copyWith(views: [for (final e in _draft.views) e.name == v.name ? e.copyWith(summary: summary) : e]));
+  }
+
+  void _setViewParameters(ViewDef v, Map<String, ParameterDef> parameters) {
+    _update(_draft.copyWith(views: [for (final e in _draft.views) e.name == v.name ? e.copyWith(parameters: parameters) : e]));
   }
 
   /// Renames [v] to [name], keeping its rules/summary/parameters, and moves
@@ -485,6 +498,7 @@ class _EditorState extends State<_Editor> {
       onDeleteView: view == null ? null : () => _deleteView(view),
       onRenameView: view == null ? null : (name) => _renameView(view, name),
       onSetSummary: view == null ? null : (summary) => _setViewSummary(view, summary),
+      onSetParameters: view == null ? null : (parameters) => _setViewParameters(view, parameters),
       compactViews: compact ? ViewsSelect(draft: _draft, selected: _view, issues: issues, onSelect: _selectView, onAdd: _addView) : null,
     );
     final storage = StoragePane(
@@ -544,7 +558,7 @@ class _EditorState extends State<_Editor> {
             if (key == null) return;
             await _flush();
             if (context.mounted) {
-              openSignDialog(context, _draft, widget.base, key, keyRegistered: _signingKeyRegistered, view: _view);
+              openSignDialog(context, _draft, widget.base, key, keyRegistered: _signingKeyRegistered, view: _view, onSigned: _onSigned);
             }
           },
         ),
@@ -961,6 +975,7 @@ class _Center extends StatelessWidget {
     required this.onDeleteView,
     required this.onRenameView,
     required this.onSetSummary,
+    required this.onSetParameters,
     required this.compactViews,
   });
 
@@ -975,6 +990,7 @@ class _Center extends StatelessWidget {
   final VoidCallback? onDeleteView;
   final ValueChanged<String>? onRenameView;
   final ValueChanged<String>? onSetSummary;
+  final ValueChanged<Map<String, ParameterDef>>? onSetParameters;
   final Widget? compactViews;
 
   @override
@@ -999,23 +1015,7 @@ class _Center extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        _ViewNameField(name: v.name, draft: draft, onChanged: onRenameView ?? (_) {}, width: _viewFieldWidth),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: CopyableText(
-                              draft.id.view(v.name).path,
-                              what: 'view path',
-                              style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    _ViewNameField(name: v.name, draft: draft, onChanged: onRenameView ?? (_) {}, width: _viewFieldWidth),
                     const SizedBox(height: 4),
                     _SummaryField(
                       summary: v.summary ?? '',
@@ -1032,7 +1032,28 @@ class _Center extends StatelessWidget {
                   ],
                 ),
               ),
-              IconButton(tooltip: 'Delete view ${v.name}', onPressed: onDeleteView, icon: const Icon(AppIcons.delete)),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CopyableText(
+                    draft.id.view(v.name).path,
+                    what: 'view path',
+                    style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
+                  ),
+                  const SizedBox(width: 12),
+                  IconButton(
+                    tooltip: 'Manage parameters of ${v.name}',
+                    onPressed: onSetParameters == null
+                        ? null
+                        : () async {
+                            final result = await showViewParametersDialog(context, view: v);
+                            if (result != null) onSetParameters!(result);
+                          },
+                    icon: const Icon(AppIcons.tune),
+                  ),
+                  IconButton(tooltip: 'Delete view ${v.name}', onPressed: onDeleteView, icon: const Icon(AppIcons.delete)),
+                ],
+              ),
             ],
           ),
           const SizedBox(height: 16),

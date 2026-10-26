@@ -24,14 +24,23 @@ Future<void> showSignDialog(
   SigningKey key, {
   bool? keyRegistered,
   String? view,
+  ValueChanged<int>? onSigned,
 }) {
   final scope = context.scope;
   final messenger = ScaffoldMessenger.of(context);
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (context) =>
-        _SignDialog(draft: draft, base: base, signKey: key, keyRegistered: keyRegistered, view: view, scope: scope, messenger: messenger),
+    builder: (context) => _SignDialog(
+      draft: draft,
+      base: base,
+      signKey: key,
+      keyRegistered: keyRegistered,
+      view: view,
+      scope: scope,
+      messenger: messenger,
+      onSigned: onSigned,
+    ),
   );
 }
 
@@ -44,6 +53,7 @@ class _SignDialog extends StatefulWidget {
     required this.view,
     required this.scope,
     required this.messenger,
+    this.onSigned,
   });
   final ConfdbSchema draft;
   final ConfdbSchema? base;
@@ -54,6 +64,10 @@ class _SignDialog extends StatefulWidget {
   final String? view;
   final AppScope scope;
   final ScaffoldMessengerState messenger;
+
+  /// Notifies the editor of the signed revision, so it can stop treating the
+  /// draft's storage paths as newly added.
+  final ValueChanged<int>? onSigned;
 
   @override
   State<_SignDialog> createState() => _SignDialogState();
@@ -98,6 +112,7 @@ class _SignDialogState extends State<_SignDialog> {
         },
       );
       if (push) widget.scope.store.reloadSchemas();
+      widget.onSigned?.call(revision);
       if (!mounted) return;
       Navigator.of(context).pop();
       // Try the newly-applied revision in the playground, or back to the

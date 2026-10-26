@@ -3,6 +3,7 @@ import 'package:confdb_studio/data/fake/fake_repository.dart';
 import 'package:confdb_studio/data/fake/sample_data.dart';
 import 'package:confdb_studio/state/app_controller.dart';
 import 'package:confdb_studio/widgets/app_icons.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -88,6 +89,38 @@ void main() {
     await tester.tapAt(const Offset(5, 5));
     await tester.pumpAndSettle();
 
+    await tester.pump(const Duration(milliseconds: 500)); // draft autosave
+  });
+
+  testWidgets('dragging a rule\'s handle reorders it within the view', (tester) async {
+    await openEditor(tester);
+
+    List<String> orderedRequests() => [
+      for (final e in find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'request').evaluate())
+        (e.widget as TextField).controller!.text,
+    ];
+    expect(orderedRequests(), ['ssid', 'band', 'status']);
+
+    final ssidHandle = tester.getCenter(find.bySemanticsLabel('Reorder rule ssid'));
+    final statusHandle = tester.getCenter(find.bySemanticsLabel('Reorder rule status'));
+    // Drag the first rule ("ssid") below the last one ("status"). A pump for
+    // kPressTimeout after the initial touch lets the recognizer register the
+    // drag start before moving, matching ReorderableListView's own tests.
+    final gesture = await tester.startGesture(ssidHandle);
+    await tester.pump(kPressTimeout);
+    // Step the drag down through each row so ReorderableListView re-evaluates
+    // the drop position after every intermediate move, not just the final one.
+    final steps = (statusHandle.dy - ssidHandle.dy).abs() / 10;
+    for (var s = 1; s <= steps; s++) {
+      await gesture.moveTo(Offset(ssidHandle.dx, ssidHandle.dy + s * 10));
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    await gesture.moveTo(statusHandle + const Offset(0, 20));
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(orderedRequests(), ['band', 'status', 'ssid']);
     await tester.pump(const Duration(milliseconds: 500)); // draft autosave
   });
 }

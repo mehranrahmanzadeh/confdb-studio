@@ -120,6 +120,15 @@ String? validateAliasName(String name, Iterable<String> existing) {
   return null;
 }
 
+/// Validation message for a view's parameter name among its [existing]
+/// parameter names, or null. Same shape as a placeholder/alias name.
+String? validateParameterName(String name, Iterable<String> existing) {
+  if (name.isEmpty) return 'Enter a name';
+  if (!_aliasNamePattern.hasMatch(name)) return 'Lowercase letters, digits and single dashes, starting with a letter';
+  if (existing.contains(name)) return 'A parameter with this name exists';
+  return null;
+}
+
 /// How many places in [root] reference each alias, by name.
 Map<String, int> aliasUsage(StorageNode root) {
   final usage = <String, int>{};

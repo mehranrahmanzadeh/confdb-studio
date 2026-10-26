@@ -109,6 +109,11 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
   late final bool _placeholder = widget.placeholderOf != null || (widget.path?.split('.').last == StorageNode.placeholderKey);
   late final StorageNode? _originalKeys = _placeholder ? widget.draft.storage.lookup(_parent!)?.keys : null;
   late final _keyPattern = TextEditingController(text: _originalKeys?.pattern ?? '');
+
+  /// Whether the placeholder's key constraint (`"keys"`) is an alias
+  /// reference rather than an inline pattern.
+  late bool _keyUseAlias = _originalKeys?.aliasRef != null;
+  late String? _selectedKeyAlias = _originalKeys?.aliasRef ?? widget.draft.aliases.keys.firstOrNull;
   late final _key = TextEditingController(text: _original?.key ?? '');
   late _Type _type = _original == null ? _Type.string : _Type.of(_original);
 
@@ -162,6 +167,22 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
       } else {
         _useAlias = false;
         _type = _Type.values.firstWhere((t) => t.name == v.substring('type:'.length));
+      }
+    });
+  }
+
+  /// The placeholder's key-constraint dropdown's current value: a custom
+  /// pattern or an alias, mirroring [_typeSelection].
+  String get _keyTypeSelection => _keyUseAlias && _selectedKeyAlias != null ? _aliasValue(_selectedKeyAlias!) : _typeValue('string');
+
+  void _onKeyTypeSelected(String? v) {
+    if (v == null) return;
+    setState(() {
+      if (v.startsWith('alias:')) {
+        _keyUseAlias = true;
+        _selectedKeyAlias = v.substring('alias:'.length);
+      } else {
+        _keyUseAlias = false;
       }
     });
   }
@@ -270,8 +291,11 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
   /// The `"keys"` constraint: a string with the pattern, or none. Keys
   /// defined some other way (choices…) are kept while the pattern is untouched.
   StorageNode? get _keys {
+    if (_keyUseAlias && _selectedKeyAlias != null) {
+      return widget.draft.aliases[_selectedKeyAlias]!.asAliasRef('keys', _selectedKeyAlias!);
+    }
     final p = _keyPattern.text.trim();
-    if (_originalKeys != null && p == (_originalKeys.pattern ?? '')) return _originalKeys;
+    if (_originalKeys != null && _originalKeys.aliasRef == null && p == (_originalKeys.pattern ?? '')) return _originalKeys;
     return p.isEmpty ? null : StorageNode(key: 'keys', kind: StorageKind.string, pattern: p);
   }
 
@@ -307,7 +331,7 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
 
   bool get _valid =>
       _keyError == null &&
-      (!_placeholder || _regexError(_keyPattern.text.trim()) == null) &&
+      (!_placeholder || (_keyUseAlias ? _selectedKeyAlias != null : _regexError(_keyPattern.text.trim()) == null)) &&
       (_useAlias
           ? _selectedAlias != null
           : _choicesError == null &&
@@ -412,18 +436,45 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
           style: context.text.bodyMedium?.copyWith(color: c.onSurfaceVariant),
         ),
         const SizedBox(height: 16),
-        TextField(
-          controller: _keyPattern,
-          autofocus: true,
-          style: context.text.bodyLarge?.mono,
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-            labelText: 'Placeholder pattern (optional)',
-            helperText: r'Regular expression placeholders must match, e.g. ^[a-z](?:-?[a-z0-9])*$ · written as "keys"',
-            helperMaxLines: 2,
-            errorText: _regexError(_keyPattern.text.trim()),
-          ),
+        DropdownMenu<String>(
+          expandedInsets: EdgeInsets.zero,
+          label: const Text('Key type'),
+          initialSelection: _keyTypeSelection,
+          helperText: _keyUseAlias ? null : 'Keys must match a pattern, or any key when left blank.',
+          onSelected: _onKeyTypeSelected,
+          dropdownMenuEntries: [
+            DropdownMenuEntry(value: _typeValue('string'), label: 'Pattern', labelWidget: Text('Pattern', style: context.text.bodyLarge?.mono)),
+            for (final e in widget.draft.aliases.entries.where((e) => e.value.kind == StorageKind.string))
+              DropdownMenuEntry(
+                value: _aliasValue(e.key),
+                label: e.key,
+                trailingIcon: Text(e.value.typeLabel, style: muted),
+                labelWidget: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(e.key, style: context.text.bodyLarge?.mono),
+                    const SizedBox(width: 6),
+                    const TypeChip('alias'),
+                  ],
+                ),
+              ),
+          ],
         ),
+        if (!_keyUseAlias) ...[
+          const SizedBox(height: 16),
+          TextField(
+            controller: _keyPattern,
+            autofocus: true,
+            style: context.text.bodyLarge?.mono,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              labelText: 'Placeholder pattern (optional)',
+              helperText: r'Regular expression placeholders must match, e.g. ^[a-z](?:-?[a-z0-9])*$ · written as "keys"',
+              helperMaxLines: 2,
+              errorText: _regexError(_keyPattern.text.trim()),
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
       ] else if (!_editing) ...[
         DropdownMenu<String?>(

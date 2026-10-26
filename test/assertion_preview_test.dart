@@ -44,7 +44,7 @@ void main() {
         views: [
           ViewDef(
             name: 'actuator-admin',
-            parameters: const {'mode': 'optional'},
+            parameters: const {'mode': ParameterDef()},
             rules: const [ViewRule(request: 'mode', storage: 'v1.mode', access: RuleAccess.readWrite)],
           ),
         ],

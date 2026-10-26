@@ -53,6 +53,8 @@ abstract final class AppIcons {
   static const openDetails = Icons.open_in_new;
   static const hook = Icons.code;
   static const dash = Icons.remove;
+  static const tune = Icons.tune;
+  static const dragHandle = Icons.drag_indicator;
 
   // The Snap Store.
   static const store = Icons.cloud_outlined;

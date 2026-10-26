@@ -386,20 +386,20 @@ List<ViewRule> _flattenRule(Map r, String? parentRequest, String? parentStorage,
   return [ViewRule(request: request, storage: storage, access: access)];
 }
 
-const _presences = {'optional', 'required-on-write', 'required-on-read', 'required'};
-
-Map<String, String> _decodeParameters(Object? json, String view) {
+Map<String, ParameterDef> _decodeParameters(Object? json, String view) {
   if (json == null) return const {};
   if (json is! Map) throw SchemaFormatException('"parameters" of view "$view" must be an object');
-  final params = <String, String>{};
+  final params = <String, ParameterDef>{};
   for (final e in json.entries) {
-    final presence = e.value is Map ? (e.value as Map)['presence'] : 0;
+    final value = e.value is Map ? e.value as Map : const {};
+    final summary = value['summary'] as String?;
+    final presence = value['presence'];
     if (presence == null || presence == '') {
-      params['${e.key}'] = 'optional';
-    } else if (presence is String && _presences.contains(presence)) {
-      params['${e.key}'] = presence;
+      params['${e.key}'] = ParameterDef(summary: summary);
+    } else if (presence is String && parameterPresences.contains(presence)) {
+      params['${e.key}'] = ParameterDef(summary: summary, presence: presence);
     } else {
-      throw SchemaFormatException('Parameter "${e.key}" of view "$view" needs a "presence" of ${_presences.join(', ')}');
+      throw SchemaFormatException('Parameter "${e.key}" of view "$view" needs a "presence" of ${parameterPresences.join(', ')}');
     }
   }
   return params;
@@ -407,9 +407,9 @@ Map<String, String> _decodeParameters(Object? json, String view) {
 
 /// The view's declared parameters plus any field filter uses without one
 /// (declared optional), since snapd rejects undeclared filter parameters.
-Map<String, String> effectiveParameters(ViewDef v) => {
+Map<String, ParameterDef> effectiveParameters(ViewDef v) => {
   for (final r in v.rules)
-    for (final p in filterParams(r.storage)) p: 'optional',
+    for (final p in filterParams(r.storage)) p: const ParameterDef(),
   ...v.parameters,
 };
 
@@ -419,7 +419,11 @@ Map<String, Object?> encodeViews(List<ViewDef> views) => {
       if (v.summary != null) 'summary': v.summary,
       if (effectiveParameters(v) case final params when params.isNotEmpty)
         'parameters': {
-          for (final e in params.entries) e.key: {if (e.value != 'optional') 'presence': e.value},
+          for (final e in params.entries)
+            e.key: {
+              if (e.value.summary != null) 'summary': e.value.summary,
+              if (e.value.presence != 'optional') 'presence': e.value.presence,
+            },
         },
       'rules': [
         for (final r in v.rules)
