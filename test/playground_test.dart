@@ -28,7 +28,7 @@ final _sysprobe = ConfdbSchema(
         },
       },
     },
-  }),
+  }).storage,
   views: const [
     ViewDef(
       name: 'admin',

@@ -159,13 +159,16 @@ class SnapStoreClient {
 
   /// `build-assertion`: the Store's headers for [draft], ready for `snap sign`.
   Future<Map<String, Object?>> buildAssertion(ConfdbSchema draft) async {
+    // `timestamp` is assigned by the Store itself; sending one of our own
+    // makes it reject the request with "additional properties are not
+    // allowed ('timestamp' was unexpected)".
     final input = signInput(draft, revision: 0, timestamp: DateTime.now());
     final json = await _request(
       'POST',
       '$_api/build-assertion',
       contentType: 'application/json',
       body: jsonEncode({
-        for (final k in ['account-id', 'name', 'summary', 'views', 'body', 'timestamp'])
+        for (final k in ['account-id', 'name', 'summary', 'views', 'body'])
           if (input.containsKey(k)) k: input[k],
       }),
     );

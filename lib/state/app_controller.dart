@@ -46,15 +46,14 @@ class SchemaEditorRoute extends AuthoringRoute {
   final String? focusStoragePath;
 }
 
-/// The editor's playground step, before signing.
-class PlaygroundRoute extends AuthoringRoute {
-  const PlaygroundRoute(this.id, {required this.view, this.path, this.snap});
+/// The editor's preview step: a read-only look at the full confdb-schema
+/// assertion (views and storage schema) before picking a signing key.
+class PreviewRoute extends AuthoringRoute {
+  const PreviewRoute(this.id, {required this.view});
   @override
   final SchemaId id;
   @override
   final String view;
-  final String? path;
-  final String? snap;
 }
 
 /// The editor's signing-key step: pick (or create) the key to sign with,
@@ -65,6 +64,18 @@ class SigningKeyRoute extends AuthoringRoute {
   final SchemaId id;
   @override
   final String view;
+}
+
+/// The editor's playground step, reached after signing and acknowledging, to
+/// try the newly-applied revision.
+class PlaygroundRoute extends AuthoringRoute {
+  const PlaygroundRoute(this.id, {required this.view, this.path, this.snap});
+  @override
+  final SchemaId id;
+  @override
+  final String view;
+  final String? path;
+  final String? snap;
 }
 
 class DataRoute extends AppRoute {

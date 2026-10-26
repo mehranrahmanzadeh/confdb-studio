@@ -4,11 +4,19 @@ import 'paths.dart' as paths;
 
 final _keyPattern = RegExp(r'^[a-z0-9](-?[a-z0-9])*$');
 
-/// Joins a parent path and a key: `wifi` + `band` → `wifi.band`.
-String joinPath(String? parent, String key) => parent == null || parent.isEmpty ? key : '$parent.$key';
+/// Alias names, like snapd's `validAliasName`: unlike storage keys, they
+/// must start with a letter.
+final _aliasNamePattern = RegExp(r'^[a-z](-?[a-z0-9])*$');
 
-/// Parent of a dotted path, or null at the top level.
-String? parentOf(String path) => path.contains('.') ? path.substring(0, path.lastIndexOf('.')) : null;
+/// Joins a parent path and a key: `wifi` + `band` → `wifi.band`, or
+/// `devices` + `[{n}]` → `devices[{n}]` (no dot before a bracketed index).
+String joinPath(String? parent, String key) => parent == null || parent.isEmpty ? key : joinTreePath(parent, key);
+
+/// Parent of a path, or null at the top level.
+String? parentOf(String path) {
+  final segs = splitTreePath(path);
+  return segs.length <= 1 ? null : joinSegments(segs.take(segs.length - 1));
+}
 
 /// Validation message for a storage key among its [siblings], or null.
 String? validateStorageKey(String key, Iterable<String> siblings) {
@@ -31,11 +39,12 @@ List<String?> mapPaths(StorageNode root) => [
 ];
 
 /// Replaces the node at [path] with [node], keeping its position among siblings.
-/// A `{key}` segment is a map's placeholder (its values).
+/// A `{key}` segment is a map's placeholder (its values); a `[{n}]` segment is
+/// an array's map-typed element.
 StorageNode replaceAt(StorageNode root, String path, StorageNode node) {
-  final segs = path.split('.');
+  final segs = splitTreePath(path);
   StorageNode go(StorageNode parent, int i) {
-    if (segs[i] == StorageNode.placeholderKey) {
+    if (segs[i] == StorageNode.placeholderKey || segs[i] == StorageNode.indexKey) {
       return parent.withElement(i == segs.length - 1 ? node : go(parent.element!, i + 1));
     }
     return parent.copyWith(
@@ -51,9 +60,9 @@ StorageNode replaceAt(StorageNode root, String path, StorageNode node) {
 
 /// Removes the node at [path]. Removing a placeholder leaves an empty map.
 StorageNode removeAt(StorageNode root, String path) {
-  final segs = path.split('.');
+  final segs = splitTreePath(path);
   StorageNode go(StorageNode parent, int i) {
-    if (segs[i] == StorageNode.placeholderKey) {
+    if (segs[i] == StorageNode.placeholderKey || segs[i] == StorageNode.indexKey) {
       return i == segs.length - 1 ? parent.withElement(null) : parent.withElement(go(parent.element!, i + 1));
     }
     return parent.copyWith(
@@ -96,5 +105,42 @@ List<ViewDef> renameStorage(List<ViewDef> views, String from, String to) {
 /// Renames [from] to [to] in a set of paths (and paths under it).
 Set<String> renamePaths(Set<String> paths, String from, String to) => {
   for (final p in paths)
-    if (p == from) to else if (p.startsWith('$from.')) to + p.substring(from.length) else p,
+    if (p == from) to else if (p.startsWith('$from.') || p.startsWith('$from[')) to + p.substring(from.length) else p,
 };
+
+// ------------------------------------------------------------------ aliases
+
+/// Validation message for an alias name among the schema's other [existing]
+/// alias names, or null. Unlike storage keys, an alias name must start with
+/// a letter (snapd's `validAliasName`).
+String? validateAliasName(String name, Iterable<String> existing) {
+  if (name.isEmpty) return 'Enter a name';
+  if (!_aliasNamePattern.hasMatch(name)) return 'Lowercase letters, digits and single dashes, starting with a letter';
+  if (existing.contains(name)) return 'An alias with this name exists';
+  return null;
+}
+
+/// Validation message for a view's parameter name among its [existing]
+/// parameter names, or null. Same shape as a placeholder/alias name.
+String? validateParameterName(String name, Iterable<String> existing) {
+  if (name.isEmpty) return 'Enter a name';
+  if (!_aliasNamePattern.hasMatch(name)) return 'Lowercase letters, digits and single dashes, starting with a letter';
+  if (existing.contains(name)) return 'A parameter with this name exists';
+  return null;
+}
+
+/// How many places in [root] reference each alias, by name.
+Map<String, int> aliasUsage(StorageNode root) {
+  final usage = <String, int>{};
+  void count(StorageNode n) {
+    if (n.aliasRef != null) usage[n.aliasRef!] = (usage[n.aliasRef!] ?? 0) + 1;
+    for (final c in n.children) {
+      count(c);
+    }
+    if (n.valuesNode != null) count(n.valuesNode!);
+    if (n.keys != null) count(n.keys!);
+  }
+
+  count(root);
+  return usage;
+}

@@ -17,7 +17,7 @@ import 'data_explorer_screen.dart';
 import '../../state/account_names.dart';
 
 /// The values table of one view (plus the load-view error and empty state).
-class ViewValues extends StatelessWidget {
+class ViewValues extends StatefulWidget {
   const ViewValues({
     super.key,
     required this.snapshot,
@@ -38,6 +38,30 @@ class ViewValues extends StatelessWidget {
   final ValueChanged<String> onSelect;
   final VoidCallback onReload;
   final ValueChanged<ViewRef> onEditSibling;
+
+  @override
+  State<ViewValues> createState() => _ViewValuesState();
+}
+
+class _ViewValuesState extends State<ViewValues> {
+  bool _collapsed = false;
+
+  ViewSnapshot get snapshot => widget.snapshot;
+  String? get selected => widget.selected;
+  String get query => widget.query;
+  bool get compact => widget.compact;
+  ExplorerContext get ctx => widget.ctx;
+  ValueChanged<String> get onSelect => widget.onSelect;
+  VoidCallback get onReload => widget.onReload;
+  ValueChanged<ViewRef> get onEditSibling => widget.onEditSibling;
+
+  @override
+  void didUpdateWidget(ViewValues old) {
+    super.didUpdateWidget(old);
+    // A different view: start expanded again rather than keep a stale
+    // collapse state from the previous view.
+    if (old.snapshot.ref != widget.snapshot.ref) _collapsed = false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -118,43 +142,53 @@ class ViewValues extends StatelessWidget {
                 alignment: Alignment.centerLeft,
                 child: cells(Text('Key', style: head), Text('Type', style: head), Text('Value', style: head), Text('Access', style: head)),
               ),
-              Container(
-                constraints: const BoxConstraints(minHeight: 44),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                decoration: BoxDecoration(
-                  border: Border(top: BorderSide(color: c.outlineVariant)),
-                ),
-                child: Row(
-                  children: [
-                    Icon(AppIcons.expand, size: 18, color: c.onSurfaceVariant),
-                    const SizedBox(width: 8),
-                    Text(ref.view, style: context.text.bodyMedium?.mono),
-                    const SizedBox(width: 8),
-                    const TypeChip('map'),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${snapshot.entries.length} keys in this view',
-                      style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
-                    ),
-                  ],
-                ),
-              ),
-              for (final e in snapshot.entries)
-                ListRow(
-                  color: e.key == selected ? c.secondaryContainer : null,
-                  padding: const EdgeInsets.fromLTRB(42, 8, 16, 8),
-                  onTap: () => onSelect(e.key),
-                  semanticLabel: '${e.key}, ${e.typeLabel}',
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 40),
-                    child: cells(
-                      _KeyText(text: e.key, query: query, selected: e.key == selected),
-                      Align(alignment: Alignment.centerLeft, child: TypeChip(e.typeLabel)),
-                      _ValueCell(entry: e, staged: staging.lookup(ref, e.key), custodian: custodiansFor(ref.schemaId).firstOrNull),
-                      AccessLabel(e.rule.access),
+              InkWell(
+                onTap: () => setState(() => _collapsed = !_collapsed),
+                child: Container(
+                  constraints: const BoxConstraints(minHeight: 44),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  decoration: BoxDecoration(
+                    border: Border(top: BorderSide(color: c.outlineVariant)),
+                  ),
+                  child: Semantics(
+                    button: true,
+                    container: true,
+                    label: '${_collapsed ? 'Expand' : 'Collapse'} ${ref.view}',
+                    excludeSemantics: true,
+                    child: Row(
+                      children: [
+                        Icon(_collapsed ? AppIcons.chevronRight : AppIcons.expand, size: 18, color: c.onSurfaceVariant),
+                        const SizedBox(width: 8),
+                        Text(ref.view, style: context.text.bodyMedium?.mono),
+                        const SizedBox(width: 8),
+                        const TypeChip('map'),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${snapshot.entries.length} keys in this view',
+                          style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
+                        ),
+                      ],
                     ),
                   ),
                 ),
+              ),
+              if (!_collapsed)
+                for (final e in snapshot.entries)
+                  ListRow(
+                    color: e.key == selected ? c.secondaryContainer : null,
+                    padding: const EdgeInsets.fromLTRB(42, 8, 16, 8),
+                    onTap: () => onSelect(e.key),
+                    semanticLabel: '${e.key}, ${e.typeLabel}',
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 40),
+                      child: cells(
+                        _KeyText(text: e.key, query: query, selected: e.key == selected),
+                        Align(alignment: Alignment.centerLeft, child: TypeChip(e.typeLabel)),
+                        _ValueCell(entry: e, staged: staging.lookup(ref, e.key), custodian: custodiansFor(ref.schemaId).firstOrNull),
+                        AccessLabel(e.rule.access),
+                      ),
+                    ),
+                  ),
             ],
           ),
         ),

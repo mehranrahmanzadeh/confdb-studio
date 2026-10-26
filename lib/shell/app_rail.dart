@@ -17,7 +17,7 @@ class AppRail extends StatelessWidget {
   final bool compact;
 
   static const _items = [
-    (Destination.overview, 'Overview', AppIcons.overview, AppIcons.overviewSelected),
+    (Destination.overview, 'Schema', AppIcons.schemas, AppIcons.schemasSelected),
     (Destination.data, 'Data', AppIcons.data, AppIcons.dataSelected),
     (Destination.access, 'Access', AppIcons.access, AppIcons.accessSelected),
   ];

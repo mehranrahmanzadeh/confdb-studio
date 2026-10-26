@@ -124,6 +124,7 @@ class EmptyState extends StatelessWidget {
               Container(
                 width: 48,
                 height: 48,
+                alignment: Alignment.center,
                 decoration: BoxDecoration(color: c.surfaceContainerHigh, borderRadius: BorderRadius.circular(ConfdbRadii.card)),
                 child: Icon(icon, color: c.onSurfaceVariant),
               ),

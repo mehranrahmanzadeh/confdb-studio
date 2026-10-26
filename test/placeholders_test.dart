@@ -90,20 +90,29 @@ void main() {
     expect(issues.every((i) => i.suggestedLeaf == null), isTrue);
   });
 
-  test('storage with nested values and aliases is written back in full', () {
-    final body = encodeStorage(robotStorage);
+  test('storage with aliases round-trips the reference, not an inlined copy', () {
+    final body = encodeStorage(robotStorage, aliases: robotAliases);
     final again = decodeStorage(jsonDecode(jsonEncode(body)));
-    expect(jsonEncode(encodeStorage(again)), jsonEncode(body));
-    final schema = (body['storage']! as Map)['schema'] as Map;
-    expect((schema['actuators'] as Map)['values'], {
-      'schema': {'mode': 'string', 'speed': 'int'},
+    expect(jsonEncode(encodeStorage(again.storage, aliases: again.aliases)), jsonEncode(body));
+    final storage = body['storage']! as Map;
+    expect(storage['aliases'], {
+      'actuator': {
+        'schema': {'mode': 'string', 'speed': 'int'},
+      },
     });
+    final schema = storage['schema'] as Map;
+    expect((schema['actuators'] as Map)['values'], r'${actuator}');
     expect(((schema['sensors'] as Map)['schema'] as Map)['accelerometers'], {
       'type': 'map',
       'values': {
         'schema': {'x': 'number', 'y': 'number'},
       },
     });
+    // The referencing node still behaves like the alias's own type (a map
+    // with `mode`/`speed`), for lint, the tree view, etc.
+    final actuator = again.storage.lookup('actuators.{key}')!;
+    expect(actuator.aliasRef, 'actuator');
+    expect(actuator.lookup('mode')!.kind, StorageKind.string);
   });
 
   test('view parameters round-trip, and filter parameters get declared', () {
@@ -124,7 +133,7 @@ void main() {
         ],
       },
     });
-    expect(views.single.parameters, {'zone': 'required-on-read'});
+    expect(views.single.parameters, {'zone': const ParameterDef(presence: 'required-on-read')});
     expect(views.single.rules.last.request, 'list[{n}]', reason: 'nested `[` paths join without a dot');
     expect((encodeViews(views)['control']! as Map)['parameters'], {
       'mode': <String, Object?>{},

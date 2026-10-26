@@ -21,9 +21,17 @@ Widget buildScreen(AppRoute route) => switch (route) {
 };
 
 /// Opens 7.5 Sign & acknowledge for a draft with the key chosen on the
-/// editor's signing-key step.
-void openSignDialog(BuildContext context, ConfdbSchema draft, ConfdbSchema? base, SigningKey key, {bool? keyRegistered}) =>
-    showSignDialog(context, draft, base, key, keyRegistered: keyRegistered);
+/// editor's signing-key step. On success, [view] decides which view the
+/// playground step (reached after acknowledging) opens to.
+void openSignDialog(
+  BuildContext context,
+  ConfdbSchema draft,
+  ConfdbSchema? base,
+  SigningKey key, {
+  bool? keyRegistered,
+  String? view,
+  ValueChanged<int>? onSigned,
+}) => showSignDialog(context, draft, base, key, keyRegistered: keyRegistered, view: view, onSigned: onSigned);
 
 /// Opens the Review & apply side sheet for everything staged.
 void openReview(BuildContext context) => showReviewSheet(context);

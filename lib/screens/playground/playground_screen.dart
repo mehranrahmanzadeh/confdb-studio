@@ -218,8 +218,15 @@ class _PlaygroundState extends State<PlaygroundPanel> {
       gap: 20,
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 40),
       children: [
+        InlineMessage(
+          kind: MessageKind.success,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          title: draft.revision == null
+              ? '${draft.id.path} signed and acknowledged.'
+              : '${draft.id.path} revision ${draft.revision} signed and acknowledged.',
+        ),
         Text(
-          'Try the draft as snaps would use it before you sign. Simulates how snapd resolves a request through a view; nothing is written and no hooks run. Results don’t block signing.',
+          'Try the new revision as snaps would use it. Simulates how snapd resolves a request through a view; nothing is written and no hooks run.',
           style: context.text.bodyMedium?.copyWith(color: context.colors.onSurfaceVariant),
         ),
         LayoutBuilder(

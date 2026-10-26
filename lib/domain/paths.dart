@@ -208,6 +208,21 @@ List<String> filterParams(String storage) => [
     for (final f in s.filters) f.param,
 ];
 
+/// The field filters on [path]'s last segment, where the editor attaches
+/// them (e.g. `actuators.{act}[.mode={mode}]`).
+List<FieldFilter> lastSegmentFilters(String path) => tryParsePath(path)?.lastOrNull?.filters ?? const [];
+
+/// [path] with its last segment's field filters replaced by [filters]. Other
+/// segments' own filters, if any, are kept untouched.
+String withLastSegmentFilters(String path, List<FieldFilter> filters) {
+  final segs = tryParsePath(path);
+  if (segs == null || segs.isEmpty) return path;
+  return joinPath([
+    for (var i = 0; i < segs.length; i++)
+      if (i == segs.length - 1) PathSegment(segs[i].kind, segs[i].name, filters) else segs[i],
+  ], filters: true);
+}
+
 /// Matches a concrete path (say `accelerometers.x`) against a rule's request
 /// (`accelerometers.{sensor}`). Returns the placeholder values and what's left
 /// of [concrete] past the rule, or null when it doesn't match.

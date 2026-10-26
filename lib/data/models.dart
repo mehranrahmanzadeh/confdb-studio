@@ -2,6 +2,52 @@
 // snap CLI) maps its data into these types.
 import 'package:flutter/foundation.dart';
 
+/// Splits a tree path into its segments, treating a bracketed index (e.g.
+/// `[{n}]`) as its own segment even when it isn't preceded by a dot, matching
+/// real confdb syntax (`devices[{n}].name`, not `devices.[{n}].name`).
+List<String> splitTreePath(String path) {
+  final segs = <String>[];
+  final buf = StringBuffer();
+  var i = 0;
+  while (i < path.length) {
+    final ch = path[i];
+    if (ch == '.') {
+      if (buf.isNotEmpty) {
+        segs.add(buf.toString());
+        buf.clear();
+      }
+      i++;
+    } else if (ch == '[') {
+      if (buf.isNotEmpty) {
+        segs.add(buf.toString());
+        buf.clear();
+      }
+      final end = path.indexOf(']', i);
+      segs.add(path.substring(i, end + 1));
+      i = end + 1;
+    } else {
+      buf.write(ch);
+      i++;
+    }
+  }
+  if (buf.isNotEmpty) segs.add(buf.toString());
+  return segs;
+}
+
+/// Joins [key] onto [prefix], the inverse of [splitTreePath]: no dot before a
+/// bracketed index.
+String joinTreePath(String prefix, String key) => prefix.isEmpty || key.startsWith('[') ? '$prefix$key' : '$prefix.$key';
+
+/// Joins tree-path segments back into a single path, the inverse of
+/// [splitTreePath].
+String joinSegments(Iterable<String> segs) {
+  var out = '';
+  for (final s in segs) {
+    out = joinTreePath(out, s);
+  }
+  return out;
+}
+
 /// `<account>/<schema>`, e.g. `acme/network`.
 @immutable
 class SchemaId {
@@ -92,20 +138,64 @@ enum RuleAccess {
 /// Maps a request path (what snaps and users see) to a storage path.
 @immutable
 class ViewRule {
-  const ViewRule({required this.request, required this.storage, required this.access});
+  const ViewRule({required this.request, required this.storage, required this.access, this.content = const []});
 
   final String request;
   final String storage;
   final RuleAccess access;
 
-  ViewRule copyWith({String? request, String? storage, RuleAccess? access}) =>
-      ViewRule(request: request ?? this.request, storage: storage ?? this.storage, access: access ?? this.access);
+  /// Child field names exposed individually instead of the whole map at
+  /// [storage] (confdb's `content` rules): each becomes its own leaf
+  /// `storage.field`, `request.field`, with the rule's own [access].
+  final List<String> content;
+
+  ViewRule copyWith({String? request, String? storage, RuleAccess? access, List<String>? content}) => ViewRule(
+    request: request ?? this.request,
+    storage: storage ?? this.storage,
+    access: access ?? this.access,
+    content: content ?? this.content,
+  );
+
+  /// The storage paths actually exposed: [storage] itself, or one per
+  /// [content] field when it's used to expose only a subset of a map.
+  Iterable<String> get exposedStoragePaths => content.isEmpty ? [storage] : [for (final f in content) joinTreePath(storage, f)];
 
   @override
-  bool operator ==(Object other) => other is ViewRule && other.request == request && other.storage == storage && other.access == access;
+  bool operator ==(Object other) =>
+      other is ViewRule &&
+      other.request == request &&
+      other.storage == storage &&
+      other.access == access &&
+      listEquals(other.content, content);
 
   @override
-  int get hashCode => Object.hash(request, storage, access);
+  int get hashCode => Object.hash(request, storage, access, Object.hashAll(content));
+}
+
+/// Allowed `presence` values for a view's declared parameter.
+const parameterPresences = ['optional', 'required-on-read', 'required-on-write', 'required'];
+
+/// A view's declared field-filter parameter (the `parameters` stanza): a
+/// `{param}` used in a storage path's `[.field={param}]` must name one of
+/// these. Parameters used without being declared are implicitly `optional`.
+@immutable
+class ParameterDef {
+  const ParameterDef({this.summary, this.presence = 'optional'});
+
+  /// Context on how the parameter may be used to filter data.
+  final String? summary;
+
+  /// Whether the user must constrain it, and for which access.
+  final String presence;
+
+  ParameterDef copyWith({String? summary, String? presence}) =>
+      ParameterDef(summary: summary ?? this.summary, presence: presence ?? this.presence);
+
+  @override
+  bool operator ==(Object other) => other is ParameterDef && other.summary == summary && other.presence == presence;
+
+  @override
+  int get hashCode => Object.hash(summary, presence);
 }
 
 @immutable
@@ -116,9 +206,8 @@ class ViewDef {
   final List<ViewRule> rules;
   final String? summary;
 
-  /// The `parameters` stanza: field-filter parameter → presence (`optional`,
-  /// `required-on-read`, `required-on-write` or `required`).
-  final Map<String, String> parameters;
+  /// The `parameters` stanza: field-filter parameter name → its declaration.
+  final Map<String, ParameterDef> parameters;
 
   /// The broadest access any rule grants; shown next to the view name.
   RuleAccess get access => rules.isEmpty ? RuleAccess.read : rules.map((r) => r.access).reduce((a, b) => a.union(b));
@@ -130,8 +219,12 @@ class ViewDef {
     return null;
   }
 
-  ViewDef copyWith({String? name, List<ViewRule>? rules}) =>
-      ViewDef(name: name ?? this.name, rules: rules ?? this.rules, summary: summary, parameters: parameters);
+  ViewDef copyWith({String? name, List<ViewRule>? rules, String? summary, Map<String, ParameterDef>? parameters}) => ViewDef(
+    name: name ?? this.name,
+    rules: rules ?? this.rules,
+    summary: summary ?? this.summary,
+    parameters: parameters ?? this.parameters,
+  );
 }
 
 enum StorageKind { map, string, int, number, bool, array, any }
@@ -154,16 +247,25 @@ class StorageNode {
     this.raw,
     this.valuesNode,
     this.keys,
+    this.aliasRef,
+    this.required = const [],
+    this.unique = false,
   });
 
   /// The path segment for a map's values: any key (a placeholder in rules).
   static const placeholderKey = '{key}';
+
+  /// The path segment for an array's elements: one per index.
+  static const indexKey = '[{n}]';
 
   const StorageNode.root(List<StorageNode> children) : this(key: '', kind: StorageKind.map, children: children);
 
   final String key;
   final StorageKind kind;
   final List<StorageNode> children;
+
+  /// Fixed set of allowed values for a `string`, `int` or `number` node
+  /// (`"choices"`), exclusive with [pattern]/[min]/[max].
   final List<String> choices;
   final String? pattern;
   final num? min;
@@ -188,6 +290,20 @@ class StorageNode {
   /// a type name (a nested map, an alias, constraints); [valuesType] labels it.
   final StorageNode? valuesNode;
 
+  /// Name of the user-defined alias this node's type references (`"${name}"`
+  /// in JSON), or null for an inline type. The other fields still describe
+  /// the alias's underlying type, for display; snapd disallows any
+  /// constraint (including `ephemeral`/`secret`) alongside an alias reference.
+  final String? aliasRef;
+
+  /// A map (with a fixed `"schema"`) is valid if at least one of these key
+  /// combinations is fully present, e.g. `[["name", "revision"]]` or
+  /// `[["name"], ["id"]]` for alternatives. Empty: no requirement.
+  final List<List<String>> required;
+
+  /// `"unique"`: an array may not hold two equal elements. Arrays only.
+  final bool unique;
+
   /// What a `{placeholder}` key or `[index]` stands for: the map's values or
   /// the array's elements.
   StorageNode? get element =>
@@ -203,13 +319,16 @@ class StorageNode {
   /// A map whose keys are free (`"values"`) rather than fixed (`"schema"`).
   bool get hasPlaceholder => isMap && children.isEmpty && (valuesNode != null || valuesType != null);
 
+  /// [key] for display: the internal `{key}` marker reads as `<placeholder>`.
+  String get displayKey => key == placeholderKey ? '<placeholder>' : key;
+
   bool get isMap => kind == StorageKind.map;
   bool get isEnum => choices.isNotEmpty;
 
   String get typeLabel {
+    if (aliasRef != null) return aliasRef!;
     if (alternatives.isNotEmpty) return alternatives.join(' | ');
-    if (isEnum) return 'enum';
-    if (kind == StorageKind.array) return 'array<${valuesType ?? 'any'}>';
+    if (kind == StorageKind.array) return 'array<${element?.aliasRef ?? valuesType ?? 'any'}>';
     return kind.name;
   }
 
@@ -220,17 +339,26 @@ class StorageNode {
       if (pattern != null) 'pattern: ${_describePattern(pattern!)}',
       if (min != null) 'min $min',
       if (max != null) 'max $max',
+      if (kind == StorageKind.array && unique) 'unique',
     ];
     return parts.isEmpty ? null : parts.join(' · ');
   }
 
   static String _describePattern(String p) => p == r'^https?://' ? 'URL' : p;
 
+  /// Whether an array's elements are themselves maps a user can add fields
+  /// to in the tree (as opposed to a scalar type or an alias).
+  bool get hasMapElement => kind == StorageKind.array && (element?.isMap ?? false);
+
   StorageNode? lookup(String path) {
     if (path.isEmpty) return this;
     StorageNode node = this;
-    for (final seg in path.split('.')) {
+    for (final seg in splitTreePath(path)) {
       if (seg == placeholderKey && node.hasPlaceholder) {
+        node = node.element!;
+        continue;
+      }
+      if (seg == indexKey && node.hasMapElement) {
         node = node.element!;
         continue;
       }
@@ -247,32 +375,42 @@ class StorageNode {
     if (hasPlaceholder) yield element!;
   }
 
-  /// Every non-map node with its dotted path, depth first.
+  /// Every non-map node with its dotted/bracketed path, depth first. An
+  /// array's map-typed element (keyed [indexKey]) is also walked, in
+  /// addition to the array itself.
   Iterable<(String, StorageNode)> leaves([String prefix = '']) sync* {
     for (final c in _treeChildren) {
-      final p = prefix.isEmpty ? c.key : '$prefix.${c.key}';
+      final p = joinTreePath(prefix, c.key);
       if (c.isMap) {
         yield* c.leaves(p);
       } else {
         yield (p, c);
       }
+      if (c.hasMapElement) yield* c.element!.withKey(indexKey).leaves(joinTreePath(p, indexKey));
     }
   }
 
-  /// Every node (maps included) with depth and dotted path, depth first.
+  /// Every node (maps included) with depth and dotted/bracketed path, depth
+  /// first. An array's map-typed element (keyed [indexKey]) is also walked.
   Iterable<(int, String, StorageNode)> walk([String prefix = '', int depth = 0]) sync* {
     for (final c in _treeChildren) {
-      final p = prefix.isEmpty ? c.key : '$prefix.${c.key}';
+      final p = joinTreePath(prefix, c.key);
       yield (depth, p, c);
       if (c.isMap) yield* c.walk(p, depth + 1);
+      if (c.hasMapElement) {
+        final elem = c.element!.withKey(indexKey);
+        final ep = joinTreePath(p, indexKey);
+        yield (depth + 1, ep, elem);
+        yield* elem.walk(ep, depth + 2);
+      }
     }
   }
 
   /// Returns a copy with [leaf] inserted at [path], creating maps as needed.
   StorageNode insert(String path, StorageNode leaf) {
-    final segs = path.split('.');
-    if (segs.first == placeholderKey) {
-      final rest = segs.skip(1).join('.');
+    final segs = splitTreePath(path);
+    if (segs.first == placeholderKey || segs.first == indexKey) {
+      final rest = joinSegments(segs.skip(1));
       return withElement(
         segs.length == 1 ? leaf : (element ?? const StorageNode(key: placeholderKey, kind: StorageKind.map)).insert(rest, leaf),
       );
@@ -281,13 +419,13 @@ class StorageNode {
       return copyWith(children: [...children.where((c) => c.key != segs.first), leaf]);
     }
     final head = segs.first;
-    final rest = segs.skip(1).join('.');
+    final rest = joinSegments(segs.skip(1));
     final existing = children.where((c) => c.key == head).firstOrNull ?? StorageNode(key: head, kind: StorageKind.map);
     final updated = existing.insert(rest, leaf);
     return copyWith(children: [for (final c in children) c.key == head ? updated : c, if (!children.contains(existing)) updated]);
   }
 
-  StorageNode copyWith({List<StorageNode>? children}) => StorageNode(
+  StorageNode copyWith({List<StorageNode>? children, List<List<String>>? required, bool? unique}) => StorageNode(
     key: key,
     kind: kind,
     children: children ?? this.children,
@@ -302,6 +440,9 @@ class StorageNode {
     raw: raw,
     valuesNode: valuesNode,
     keys: keys,
+    aliasRef: aliasRef,
+    required: required ?? this.required,
+    unique: unique ?? this.unique,
   );
 
   /// This map with [e] as its values (a placeholder), or with none.
@@ -317,6 +458,25 @@ class StorageNode {
 
   StorageNode withKey(String k) => _with(key: k, valuesNode: valuesNode, valuesType: valuesType, keys: keys);
 
+  /// This node's type as a reference to alias [name] at [key] (its
+  /// constraints come from the alias; `ephemeral`/`secret` can't apply to a
+  /// reference, since snapd writes it as the bare string `"${name}"`).
+  StorageNode asAliasRef(String key, String name) => StorageNode(
+    key: key,
+    kind: kind,
+    children: children,
+    choices: choices,
+    pattern: pattern,
+    min: min,
+    max: max,
+    valuesType: valuesType,
+    valuesNode: valuesNode,
+    keys: keys,
+    aliasRef: name,
+    required: required,
+    unique: unique,
+  );
+
   StorageNode _with({required String key, required StorageNode? valuesNode, required String? valuesType, required StorageNode? keys}) =>
       StorageNode(
         key: key,
@@ -331,8 +491,11 @@ class StorageNode {
         secret: secret,
         alternatives: alternatives,
         raw: raw,
+        required: required,
+        unique: unique,
         valuesNode: valuesNode,
         keys: keys,
+        aliasRef: aliasRef,
       );
 }
 
@@ -350,6 +513,7 @@ class ConfdbSchema {
     this.baseRevision,
     this.signedBy,
     this.addedInDraft = const {},
+    this.aliases = const {},
   });
 
   final SchemaId id;
@@ -360,6 +524,10 @@ class ConfdbSchema {
   final bool builtIn;
   final List<ViewDef> views;
   final StorageNode storage;
+
+  /// User-defined reusable types (`"aliases"` in the storage schema), keyed
+  /// by name; referenced from [storage] via [StorageNode.aliasRef].
+  final Map<String, StorageNode> aliases;
 
   /// Drafts are local; [baseRevision] is the signed revision they started from.
   final bool isDraft;
@@ -375,7 +543,7 @@ class ConfdbSchema {
   List<(ViewDef, ViewRule)> viewsUsing(String storagePath) => [
     for (final v in views)
       for (final r in v.rules)
-        if (r.storage == storagePath) (v, r),
+        if (r.exposedStoragePaths.contains(storagePath)) (v, r),
   ];
 
   ConfdbSchema copyWith({
@@ -386,6 +554,7 @@ class ConfdbSchema {
     int? baseRevision,
     Set<String>? addedInDraft,
     String? summary,
+    Map<String, StorageNode>? aliases,
   }) => ConfdbSchema(
     id: id,
     revision: revision ?? this.revision,
@@ -397,6 +566,7 @@ class ConfdbSchema {
     baseRevision: baseRevision ?? this.baseRevision,
     signedBy: signedBy,
     addedInDraft: addedInDraft ?? this.addedInDraft,
+    aliases: aliases ?? this.aliases,
   );
 }
 
