@@ -10,10 +10,11 @@ import '../../widgets/common.dart';
 /// names a rule's field filters (`[.field={param}]`) may reference. Doesn't
 /// touch any rule; assigning a parameter to a field happens per-rule, via
 /// the "Filter by parameter" button on its storage path.
-Future<Map<String, ParameterDef>?> showViewParametersDialog(BuildContext context, {required ViewDef view}) => showDialog<Map<String, ParameterDef>>(
-  context: context,
-  builder: (context) => _ViewParametersDialog(view: view),
-);
+Future<Map<String, ParameterDef>?> showViewParametersDialog(BuildContext context, {required ViewDef view}) =>
+    showDialog<Map<String, ParameterDef>>(
+      context: context,
+      builder: (context) => _ViewParametersDialog(view: view),
+    );
 
 class _ViewParametersDialog extends StatefulWidget {
   const _ViewParametersDialog({required this.view});
@@ -93,9 +94,7 @@ class _ViewParametersDialogState extends State<_ViewParametersDialog> {
             initialSelection: def.presence,
             textStyle: context.text.bodySmall,
             onSelected: (v) => setState(() => _parameters = {..._parameters, name: def.copyWith(presence: v)}),
-            dropdownMenuEntries: [
-              for (final p in parameterPresences) DropdownMenuEntry(value: p, label: p),
-            ],
+            dropdownMenuEntries: [for (final p in parameterPresences) DropdownMenuEntry(value: p, label: p)],
           ),
           IconButton(
             tooltip: 'Delete parameter "$name"',
@@ -138,9 +137,7 @@ class _ViewParametersDialogState extends State<_ViewParametersDialog> {
                   label: const Text('Presence'),
                   initialSelection: _newPresence,
                   onSelected: (v) => setState(() => _newPresence = v ?? _newPresence),
-                  dropdownMenuEntries: [
-                    for (final p in parameterPresences) DropdownMenuEntry(value: p, label: p),
-                  ],
+                  dropdownMenuEntries: [for (final p in parameterPresences) DropdownMenuEntry(value: p, label: p)],
                 ),
                 const SizedBox(height: 8),
                 Row(

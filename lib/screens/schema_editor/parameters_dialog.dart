@@ -54,7 +54,8 @@ class _AssignFiltersDialogState extends State<_AssignFiltersDialog> {
   }
 
   bool get _valid =>
-      _duplicateFieldError == null && _filters.every((d) => d.field != null && d.field!.isNotEmpty && d.param != null && d.param!.isNotEmpty);
+      _duplicateFieldError == null &&
+      _filters.every((d) => d.field != null && d.field!.isNotEmpty && d.param != null && d.param!.isNotEmpty);
 
   void _addFilter() => setState(() => _filters.add(_FilterDraft()));
 
@@ -85,12 +86,20 @@ class _AssignFiltersDialogState extends State<_AssignFiltersDialog> {
                 initialSelection: d.field,
                 onSelected: (v) => setState(() => d.field = v),
                 dropdownMenuEntries: [
-                  for (final f in fieldOptions) DropdownMenuEntry(value: f, label: f, labelWidget: Text(f, style: mono)),
+                  for (final f in fieldOptions)
+                    DropdownMenuEntry(
+                      value: f,
+                      label: f,
+                      labelWidget: Text(f, style: mono),
+                    ),
                 ],
               ),
             ),
             const SizedBox(width: 8),
-            Padding(padding: const EdgeInsets.only(top: 16), child: Text('=', style: mono)),
+            Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Text('=', style: mono),
+            ),
             const SizedBox(width: 8),
             Expanded(
               child: DropdownMenu<String>(
@@ -99,15 +108,16 @@ class _AssignFiltersDialogState extends State<_AssignFiltersDialog> {
                 initialSelection: d.param,
                 onSelected: (v) => setState(() => d.param = v),
                 dropdownMenuEntries: [
-                  for (final p in widget.parameters.keys) DropdownMenuEntry(value: p, label: p, labelWidget: Text(p, style: mono)),
+                  for (final p in widget.parameters.keys)
+                    DropdownMenuEntry(
+                      value: p,
+                      label: p,
+                      labelWidget: Text(p, style: mono),
+                    ),
                 ],
               ),
             ),
-            IconButton(
-              tooltip: 'Remove filter',
-              onPressed: () => _removeFilter(d),
-              icon: const Icon(AppIcons.delete, size: 20),
-            ),
+            IconButton(tooltip: 'Remove filter', onPressed: () => _removeFilter(d), icon: const Icon(AppIcons.delete, size: 20)),
           ],
         ),
       );

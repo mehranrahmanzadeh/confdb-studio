@@ -98,8 +98,7 @@ void main() {
     List<String> acked(_Recording socket) => [
       for (final c in socket.calls)
         if (c.$2 == '/v2/assertions')
-          for (final part in (c.$3! as String).split('\n\n'))
-            ?SnapdRepository.assertionHeaders(part)['type'],
+          for (final part in (c.$3! as String).split('\n\n')) ?SnapdRepository.assertionHeaders(part)['type'],
     ];
 
     test('acknowledges the account and account-key before the schema, in a single request', () async {

@@ -95,10 +95,7 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.byWidgetPredicate((w) => w is TextField && w.controller?.text == 'device[.name={device-name}]'),
-      findsOneWidget,
-    );
+    expect(find.byWidgetPredicate((w) => w is TextField && w.controller?.text == 'device[.name={device-name}]'), findsOneWidget);
 
     await tester.pump(const Duration(milliseconds: 500)); // draft autosave
   });

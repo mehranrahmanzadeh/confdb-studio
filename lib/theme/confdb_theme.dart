@@ -117,22 +117,43 @@ ThemeData confdbDarkTheme() {
       unselectedIconTheme: IconThemeData(color: scheme.onSurfaceVariant),
       labelType: NavigationRailLabelType.all,
     ),
-    filledButtonTheme: FilledButtonThemeData(style: FilledButton.styleFrom(shape: buttonShape, minimumSize: const Size(0, 40))),
-    outlinedButtonTheme: OutlinedButtonThemeData(
-      style: OutlinedButton.styleFrom(shape: buttonShape, foregroundColor: scheme.secondary, side: BorderSide(color: scheme.outline), minimumSize: const Size(0, 40)),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(shape: buttonShape, minimumSize: const Size(0, 40)),
     ),
-    textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(shape: buttonShape, foregroundColor: scheme.secondary, minimumSize: const Size(0, 40))),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        shape: buttonShape,
+        foregroundColor: scheme.secondary,
+        side: BorderSide(color: scheme.outline),
+        minimumSize: const Size(0, 40),
+      ),
+    ),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(shape: buttonShape, foregroundColor: scheme.secondary, minimumSize: const Size(0, 40)),
+    ),
     segmentedButtonTheme: SegmentedButtonThemeData(style: ButtonStyle(shape: WidgetStatePropertyAll(buttonShape))),
     inputDecorationTheme: InputDecorationTheme(
       border: OutlineInputBorder(borderRadius: BorderRadius.circular(ConfdbRadii.field)),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(ConfdbRadii.field), borderSide: BorderSide(color: scheme.outline)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(ConfdbRadii.field), borderSide: BorderSide(color: scheme.primary, width: 2)),
-      errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(ConfdbRadii.field), borderSide: BorderSide(color: scheme.error, width: 2)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(ConfdbRadii.field),
+        borderSide: BorderSide(color: scheme.outline),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(ConfdbRadii.field),
+        borderSide: BorderSide(color: scheme.primary, width: 2),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(ConfdbRadii.field),
+        borderSide: BorderSide(color: scheme.error, width: 2),
+      ),
     ),
     cardTheme: CardThemeData(
       color: scheme.surfaceContainerLowest,
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ConfdbRadii.card), side: BorderSide(color: scheme.outlineVariant)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(ConfdbRadii.card),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: scheme.surfaceContainerHigh,

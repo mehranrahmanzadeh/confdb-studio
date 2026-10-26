@@ -289,20 +289,27 @@ class _RulesTableState extends State<RulesTable> {
                 focusNode: _storeFocus[i],
                 root: widget.storage,
                 usage: widget.usage,
-                decoration: deco(
-                  label: 'Storage path for ${r.request}',
-                  hint: 'storage.path',
-                  error: missing != null
-                      ? CodeText('Error: `${r.storage}` does not exist in storage.', style: context.text.bodySmall?.copyWith(color: c.error))
-                      : pathIssue != null && pathIssue.isError
-                      ? CodeText('Error: ${pathIssue.detail}.', style: context.text.bodySmall?.copyWith(color: c.error))
-                      : null,
-                  helper: pathIssue != null && !pathIssue.isError
-                      ? CodeText('Warning: ${pathIssue.detail}.', style: context.text.bodySmall?.copyWith(color: context.status.warning))
-                      : null,
-                ).copyWith(
-                  suffixIcon: missing != null || (pathIssue?.isError ?? false) ? Icon(AppIcons.error, color: c.error, size: 20) : null,
-                ),
+                decoration:
+                    deco(
+                      label: 'Storage path for ${r.request}',
+                      hint: 'storage.path',
+                      error: missing != null
+                          ? CodeText(
+                              'Error: `${r.storage}` does not exist in storage.',
+                              style: context.text.bodySmall?.copyWith(color: c.error),
+                            )
+                          : pathIssue != null && pathIssue.isError
+                          ? CodeText('Error: ${pathIssue.detail}.', style: context.text.bodySmall?.copyWith(color: c.error))
+                          : null,
+                      helper: pathIssue != null && !pathIssue.isError
+                          ? CodeText(
+                              'Warning: ${pathIssue.detail}.',
+                              style: context.text.bodySmall?.copyWith(color: context.status.warning),
+                            )
+                          : null,
+                    ).copyWith(
+                      suffixIcon: missing != null || (pathIssue?.isError ?? false) ? Icon(AppIcons.error, color: c.error, size: 20) : null,
+                    ),
                 onChanged: (v) => _set(i, r.copyWith(storage: v.trim())),
               ),
             ),

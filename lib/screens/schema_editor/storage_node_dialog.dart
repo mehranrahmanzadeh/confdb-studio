@@ -443,7 +443,11 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
           helperText: _keyUseAlias ? null : 'Keys must match a pattern, or any key when left blank.',
           onSelected: _onKeyTypeSelected,
           dropdownMenuEntries: [
-            DropdownMenuEntry(value: _typeValue('string'), label: 'Pattern', labelWidget: Text('Pattern', style: context.text.bodyLarge?.mono)),
+            DropdownMenuEntry(
+              value: _typeValue('string'),
+              label: 'Pattern',
+              labelWidget: Text('Pattern', style: context.text.bodyLarge?.mono),
+            ),
             for (final e in widget.draft.aliases.entries.where((e) => e.value.kind == StorageKind.string))
               DropdownMenuEntry(
                 value: _aliasValue(e.key),

@@ -14,7 +14,9 @@ void main() {
     test('keeps a draft\'s aliases across a save/list round trip', () async {
       final store = FileDraftStore(dir: dir);
       final draft = networkDraft.copyWith(
-        aliases: {'channel-name': const StorageNode(key: 'channel-name', kind: StorageKind.string, choices: ['2.4GHz', '5GHz', 'auto'])},
+        aliases: {
+          'channel-name': const StorageNode(key: 'channel-name', kind: StorageKind.string, choices: ['2.4GHz', '5GHz', 'auto']),
+        },
       );
 
       await store.save(draft);

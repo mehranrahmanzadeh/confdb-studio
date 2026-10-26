@@ -183,10 +183,6 @@ void main() {
 
     await tester.pump(const Duration(milliseconds: 500)); // draft autosave
     final draft = (await tester.runAsync(repo.listDrafts))!.singleWhere((d) => d.id == id);
-    expect(_actuators(draft.storage), {
-      'type': 'map',
-      'keys': r'${gadget-name}',
-      'values': 'string',
-    });
+    expect(_actuators(draft.storage), {'type': 'map', 'keys': r'${gadget-name}', 'values': 'string'});
   });
 }

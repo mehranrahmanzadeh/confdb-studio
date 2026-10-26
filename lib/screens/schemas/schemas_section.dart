@@ -371,7 +371,8 @@ class _SchemaTableState extends State<_SchemaTable> {
                     ),
                   ),
                 ),
-                if (!_collapsed.contains(g.key)) for (final s in g.value) _row(context, s, cells),
+                if (!_collapsed.contains(g.key))
+                  for (final s in g.value) _row(context, s, cells),
               ],
             ],
           ),

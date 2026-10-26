@@ -34,10 +34,7 @@ jobs:
         run: flutter analyze
 
       - name: Check formatting
-        run: |
-          git ls-files 'lib/*.dart' 'test/*.dart' \
-            | grep -v '^lib/theme/confdb_theme.dart$' \
-            | xargs dart format --output=none --set-exit-if-changed
+        run: dart format --output=none --set-exit-if-changed lib test
 
       - name: Test
         run: flutter test
