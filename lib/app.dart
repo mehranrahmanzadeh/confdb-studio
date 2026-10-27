@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'data/confdb_repository.dart';
 import 'data/models.dart';
 import 'shell/app_shell.dart';
+import 'shell/product_tour.dart';
 import 'state/account_names.dart';
 import 'state/app_controller.dart';
 import 'state/app_scope.dart';
@@ -36,6 +37,7 @@ class _ConfdbStudioAppState extends State<ConfdbStudioApp> {
   @override
   void initState() {
     super.initState();
+    ProductTour.ensureRegistered();
     _sub = widget.repository.onChanged.listen((_) {
       _refreshStatus();
       _resolveAccounts();

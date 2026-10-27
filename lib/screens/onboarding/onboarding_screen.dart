@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/models.dart';
 import '../../domain/templates.dart';
+import '../../shell/product_tour.dart';
 import '../../state/app_controller.dart';
 import '../../state/app_scope.dart';
 import '../../theme/app_theme.dart';
@@ -23,7 +24,7 @@ class OnboardingScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
     padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
-    child: Center(child: route.choose ? _Choose(justEnabled: route.justEnabled) : const _Enable()),
+    child: Center(child: route.choose ? const _Choose() : const _Enable()),
   );
 }
 
@@ -46,7 +47,7 @@ class _EnableState extends State<_Enable> {
     });
     try {
       await scope.repository.enableConfdb();
-      scope.app.go(const OnboardingRoute(choose: true, justEnabled: true));
+      scope.app.go(const OverviewRoute(justEnabled: true));
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -121,8 +122,7 @@ final _schemaName = RegExp(r'^[a-z0-9](-?[a-z0-9])*$');
 const _defaultNames = {'wifi': 'network'};
 
 class _Choose extends StatefulWidget {
-  const _Choose({required this.justEnabled});
-  final bool justEnabled;
+  const _Choose();
 
   @override
   State<_Choose> createState() => _ChooseState();
@@ -145,6 +145,9 @@ class _ChooseState extends State<_Choose> {
     if (context.app.accountKnown) _account.text = context.app.account;
     _name.addListener(() => setState(() {}));
     _loadTaken();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ProductTour.startIfNeeded(context, 'new_schema', TourKeys.choose);
+    });
   }
 
   Future<void> _loadTaken() async {
@@ -200,7 +203,7 @@ class _ChooseState extends State<_Choose> {
     } catch (e) {
       if (mounted) {
         setState(() => _busy = false);
-        showConfirmation(context, Text('Couldn’t create the draft: $e'));
+        showConfirmation(context, Text('Couldn’t create the draft: $e'), kind: MessageKind.error);
       }
     }
   }
@@ -356,21 +359,12 @@ class _ChooseState extends State<_Choose> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (widget.justEnabled) ...[
-            InlineMessage(
-              kind: MessageKind.success,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              title: 'Confdb enabled.',
-              body: const CodeText('`experimental.confdb=true` is now set for this system.'),
-            ),
-            const SizedBox(height: 20),
-          ],
           Semantics(
             header: true,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Text(widget.justEnabled ? 'Set up your first schema' : 'Create a schema', style: context.text.headlineMedium),
+                Text('Create a schema', style: context.text.headlineMedium),
                 const SizedBox(width: 4),
                 const NamingConventionsButton(),
               ],
@@ -395,12 +389,18 @@ class _ChooseState extends State<_Choose> {
                   title: 'Import an existing schema',
                   body: 'Load a signed confdb-schema assertion, or a JSON draft from disk.',
                 ),
-                option(
-                  isImport: false,
-                  icon: AppIcons.template,
-                  title: 'Start from a template',
-                  body: 'A storage tree and views you can rename and extend.',
-                  children: [templates],
+                tourShowcase(
+                  context,
+                  key: TourKeys.chooseTemplate,
+                  title: 'Pick a template',
+                  description: 'Start from a ready-made storage tree and views, then adjust them in the editor.',
+                  child: option(
+                    isImport: false,
+                    icon: AppIcons.template,
+                    title: 'Start from a template',
+                    body: 'A storage tree and views you can rename and extend.',
+                    children: [templates],
+                  ),
                 ),
               ],
             ),
@@ -441,21 +441,27 @@ class _ChooseState extends State<_Choose> {
                       helperMaxLines: 2,
                     ),
                   ),
-                TextField(
-                  controller: _name,
-                  style: context.text.bodyLarge?.mono,
-                  onChanged: (_) => _nameEdited = true,
-                  onSubmitted: (_) => _open(account),
-                  decoration: InputDecoration(
-                    labelText: 'Schema name',
-                    errorText: error == null ? null : 'Error: ${context.aliased(error)}',
-                    helper: error == null
-                        ? CodeText(
-                            'Lowercase letters, digits and dashes · creates `$account/${_name.text.trim()}`',
-                            style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
-                            codeColor: c.onSurface,
-                          )
-                        : null,
+                tourShowcase(
+                  context,
+                  key: TourKeys.chooseName,
+                  title: 'Name it',
+                  description: 'Pick a name for the schema; it becomes `account/name` once saved.',
+                  child: TextField(
+                    controller: _name,
+                    style: context.text.bodyLarge?.mono,
+                    onChanged: (_) => _nameEdited = true,
+                    onSubmitted: (_) => _open(account),
+                    decoration: InputDecoration(
+                      labelText: 'Schema name',
+                      errorText: error == null ? null : 'Error: ${context.aliased(error)}',
+                      helper: error == null
+                          ? CodeText(
+                              'Lowercase letters, digits and dashes · creates `$account/${_name.text.trim()}`',
+                              style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant),
+                              codeColor: c.onSurface,
+                            )
+                          : null,
+                    ),
                   ),
                 ),
               ],
@@ -477,11 +483,17 @@ class _ChooseState extends State<_Choose> {
             children: [
               TextButton(onPressed: () => app.go(const OverviewRoute()), child: const Text('Skip for now')),
               const SizedBox(width: 8),
-              PrimaryButton(
-                label: _import ? 'Choose file…' : 'Open in schema editor',
-                icon: _import ? AppIcons.upload : null,
-                busy: _busy,
-                onPressed: !_import && error != null ? null : () => _open(account),
+              tourShowcase(
+                context,
+                key: TourKeys.chooseOpen,
+                title: 'Create it',
+                description: 'Opens the schema editor, where you can refine the storage tree, views and rules.',
+                child: PrimaryButton(
+                  label: _import ? 'Choose file…' : 'Open in schema editor',
+                  icon: _import ? AppIcons.upload : null,
+                  busy: _busy,
+                  onPressed: !_import && error != null ? null : () => _open(account),
+                ),
               ),
             ],
           ),

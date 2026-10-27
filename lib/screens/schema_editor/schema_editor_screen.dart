@@ -7,6 +7,7 @@ import '../../data/models.dart';
 import '../../domain/analysis.dart';
 import '../../domain/storage_edit.dart';
 import '../../shell/app_shell.dart';
+import '../../shell/product_tour.dart';
 import '../../shell/screen_host.dart';
 import '../../state/app_controller.dart';
 import '../../state/app_scope.dart';
@@ -119,6 +120,7 @@ class _EditorState extends State<_Editor> {
   late String? _focusPath = _editRoute?.focusStoragePath;
   String? _focusRule;
   bool _json = false;
+  bool _viewsCollapsed = false;
   Timer? _save;
 
   /// Chosen on the signing-key step; carried along so it survives going
@@ -156,6 +158,9 @@ class _EditorState extends State<_Editor> {
         if (mounted) context.app.replace(SchemaEditorRoute(id, view: _view, focusStoragePath: _focusPath));
       });
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) ProductTour.startIfNeeded(context, 'editor', TourKeys.editor);
+    });
   }
 
   @override
@@ -447,28 +452,34 @@ class _EditorState extends State<_Editor> {
   });
 
   static const _minSide = 200.0, _maxViews = 480.0, _minStorage = 280.0, _maxStorage = 760.0, _minCenter = 530.0;
+  static const _collapsedViewsWidth = 40.0;
 
   /// Views | rules | storage, with draggable dividers. The middle column
-  /// keeps at least [_minCenter]; side panes stay within their limits.
+  /// keeps at least [_minCenter]; side panes stay within their limits. The
+  /// views pane can also be collapsed to a narrow strip via [_viewsCollapsed].
   Widget _resizableRow(double total, Widget views, Widget center, Widget storage) {
     final app = context.app;
     final room = total - 2 * ResizeHandle.width - _minCenter;
     double clampViews(double w, double right) => w.clamp(_minSide, (room - right).clamp(_minSide, _maxViews));
     double clampStorage(double w, double left) => w.clamp(_minStorage, (room - left).clamp(_minStorage, _maxStorage));
-    var right = clampStorage(_json ? app.jsonPaneWidth : app.treePaneWidth, _minSide);
-    final left = clampViews(app.viewsPaneWidth, right);
+    var right = clampStorage(_json ? app.jsonPaneWidth : app.treePaneWidth, _viewsCollapsed ? _collapsedViewsWidth : _minSide);
+    final left = _viewsCollapsed ? _collapsedViewsWidth : clampViews(app.viewsPaneWidth, right);
     right = clampStorage(right, left);
     void setRight(double w) => setState(() => _json ? app.jsonPaneWidth = w : app.treePaneWidth = w);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(width: left, child: views),
-        ResizeHandle(
-          label: 'Resize views panel',
-          // From the stored width, not this build's: several moves can land in one frame.
-          onDrag: (dx) => setState(() => app.viewsPaneWidth = clampViews(clampViews(app.viewsPaneWidth, right) + dx, right)),
-          onReset: () => setState(() => app.viewsPaneWidth = AppController.defaultViewsPaneWidth),
+        SizedBox(
+          width: left,
+          child: _viewsCollapsed ? _CollapsedViewsStrip(onExpand: () => setState(() => _viewsCollapsed = false)) : views,
         ),
+        if (!_viewsCollapsed)
+          ResizeHandle(
+            label: 'Resize views panel',
+            // From the stored width, not this build's: several moves can land in one frame.
+            onDrag: (dx) => setState(() => app.viewsPaneWidth = clampViews(clampViews(app.viewsPaneWidth, right) + dx, right)),
+            onReset: () => setState(() => app.viewsPaneWidth = AppController.defaultViewsPaneWidth),
+          ),
         Expanded(child: center),
         ResizeHandle(
           label: 'Resize storage panel',
@@ -486,36 +497,48 @@ class _EditorState extends State<_Editor> {
     final view = _view == null ? null : _draft.view(_view!);
     final compact = isCompact(context);
 
-    final center = _Center(
-      draft: _draft,
-      view: view,
-      issues: issues,
-      focusRule: _focusRule,
-      onRules: _setRules,
-      onQuickFix: _quickFix,
-      onGoToRule: (v, r) => _selectView(v, rule: r),
-      onShowInStorage: _showInStorage,
-      onDeleteView: view == null ? null : () => _deleteView(view),
-      onRenameView: view == null ? null : (name) => _renameView(view, name),
-      onSetSummary: view == null ? null : (summary) => _setViewSummary(view, summary),
-      onSetParameters: view == null ? null : (parameters) => _setViewParameters(view, parameters),
-      compactViews: compact ? ViewsSelect(draft: _draft, selected: _view, issues: issues, onSelect: _selectView, onAdd: _addView) : null,
+    final center = tourShowcase(
+      context,
+      key: TourKeys.editorRules,
+      title: 'Views & rules',
+      description: 'Pick a view, then define the rules mapping requests to storage paths.',
+      child: _Center(
+        draft: _draft,
+        view: view,
+        issues: issues,
+        focusRule: _focusRule,
+        onRules: _setRules,
+        onQuickFix: _quickFix,
+        onGoToRule: (v, r) => _selectView(v, rule: r),
+        onShowInStorage: _showInStorage,
+        onDeleteView: view == null ? null : () => _deleteView(view),
+        onRenameView: view == null ? null : (name) => _renameView(view, name),
+        onSetSummary: view == null ? null : (summary) => _setViewSummary(view, summary),
+        onSetParameters: view == null ? null : (parameters) => _setViewParameters(view, parameters),
+        compactViews: compact ? ViewsSelect(draft: _draft, selected: _view, issues: issues, onSelect: _selectView, onAdd: _addView) : null,
+      ),
     );
-    final storage = StoragePane(
-      draft: _draft,
-      issues: issues,
-      focusPath: _focusPath,
-      json: _json,
-      onJson: (v) => setState(() => _json = v),
-      onStorage: (root, aliases) => _update(_draft.copyWith(storage: root, aliases: aliases)),
-      onAdd: _addNode,
-      onAddAlias: _addAlias,
-      onAddPlaceholder: _addPlaceholder,
-      onEdit: _editNode,
-      onDelete: _deleteNode,
-      onEditAlias: _editAlias,
-      onDeleteAlias: _deleteAlias,
-      compact: compact,
+    final storage = tourShowcase(
+      context,
+      key: TourKeys.editorStorage,
+      title: 'Storage tree',
+      description: 'Shape the storage tree that the views above read and write.',
+      child: StoragePane(
+        draft: _draft,
+        issues: issues,
+        focusPath: _focusPath,
+        json: _json,
+        onJson: (v) => setState(() => _json = v),
+        onStorage: (root, aliases) => _update(_draft.copyWith(storage: root, aliases: aliases)),
+        onAdd: _addNode,
+        onAddAlias: _addAlias,
+        onAddPlaceholder: _addPlaceholder,
+        onEdit: _editNode,
+        onDelete: _deleteNode,
+        onEditAlias: _editAlias,
+        onDeleteAlias: _deleteAlias,
+        compact: compact,
+      ),
     );
 
     final play = _playRoute;
@@ -593,13 +616,67 @@ class _EditorState extends State<_Editor> {
               : LayoutBuilder(
                   builder: (context, constraints) => _resizableRow(
                     constraints.maxWidth,
-                    ViewsPane(draft: _draft, selected: _view, issues: issues, onSelect: _selectView, onAdd: _addView),
+                    tourShowcase(
+                      context,
+                      key: TourKeys.editorViews,
+                      title: 'Views',
+                      description: 'Views are the endpoints snaps read and write confdb through; pick one to edit its rules.',
+                      child: ViewsPane(
+                        draft: _draft,
+                        selected: _view,
+                        issues: issues,
+                        onSelect: _selectView,
+                        onAdd: _addView,
+                        onCollapse: () => setState(() => _viewsCollapsed = true),
+                      ),
+                    ),
                     center,
                     storage,
                   ),
                 ),
         ),
       ],
+    );
+  }
+}
+
+/// The collapsed views pane: a narrow strip with a button to expand it back.
+class _CollapsedViewsStrip extends StatelessWidget {
+  const _CollapsedViewsStrip({required this.onExpand});
+  final VoidCallback onExpand;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Semantics(
+      button: true,
+      label: 'Expand views panel',
+      child: Material(
+        color: c.surface,
+        child: InkWell(
+          onTap: onExpand,
+          child: Tooltip(
+            message: 'Expand views panel',
+            waitDuration: const Duration(milliseconds: 500),
+            child: Column(
+              children: [
+                const SizedBox(height: 8),
+                Icon(AppIcons.panelExpandRight, size: 20, color: c.onSurfaceVariant),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: RotatedBox(
+                    quarterTurns: 3,
+                    child: Text(
+                      'Views',
+                      style: context.text.labelMedium?.copyWith(color: c.onSurfaceVariant, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -705,9 +782,15 @@ class _Header extends StatelessWidget {
                 _EditorStep.preview || _EditorStep.signingKey => TertiaryButton(label: 'Back', icon: AppIcons.back, onPressed: onBack),
               },
               switch (step) {
-                _EditorStep.schema => Tooltip(
-                  message: errors > 0 ? 'Fix the lint errors first' : 'Preview the full assertion, then sign',
-                  child: PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
+                _EditorStep.schema => tourShowcase(
+                  context,
+                  key: TourKeys.editorNext,
+                  title: 'Preview & sign',
+                  description: 'Once the schema is ready, preview the assertion and sign it from here.',
+                  child: Tooltip(
+                    message: errors > 0 ? 'Fix the lint errors first' : 'Preview the full assertion, then sign',
+                    child: PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
+                  ),
                 ),
                 _EditorStep.preview => Tooltip(
                   message: errors > 0 ? 'Fix the lint errors first' : 'Pick the key to sign with',

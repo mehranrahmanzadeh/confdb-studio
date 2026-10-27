@@ -9,6 +9,7 @@ import '../widgets/common.dart';
 import '../widgets/copyable_text.dart';
 import '../widgets/status_badge.dart';
 import '../screens/store/store_login_dialog.dart';
+import 'product_tour.dart';
 
 /// Bottom of the rail: the Snap Store account (via the vendored Rust
 /// backend). Warns when it isn't signed in, because signing schemas needs a
@@ -66,47 +67,53 @@ class AccountButton extends StatelessWidget {
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 4),
-          child: MenuAnchor(
-            // Opens beside the rail (and shifts up to fit), not over it.
-            alignmentOffset: const Offset(12, 0),
-            style: MenuStyle(
-              alignment: AlignmentDirectional.topEnd,
-              side: WidgetStatePropertyAll(BorderSide(color: c.outlineVariant)),
-              shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            ),
-            menuChildren: const [_AccountPanel()],
-            builder: (context, controller, _) => Tooltip(
-              message: tooltip,
-              child: Semantics(
-                button: true,
-                label: 'Snap Store account. $tooltip',
-                excludeSemantics: true,
-                child: InkWell(
-                  mouseCursor: WidgetStateMouseCursor.clickable,
-                  borderRadius: BorderRadius.circular(12),
-                  onTap: () => controller.isOpen ? controller.close() : controller.open(),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                    child: SizedBox(
-                      width: compact ? 48 : 72,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          avatar,
-                          if (!compact) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              label,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: context.text.labelMedium?.copyWith(
-                                color: warn ? s.warning : c.onSurfaceVariant,
-                                fontWeight: warn ? FontWeight.w600 : FontWeight.w500,
+          child: tourShowcase(
+            context,
+            key: TourKeys.account,
+            title: 'Snap Store account',
+            description: 'Sign in here to push schemas, see the ones registered to your account, and register signing keys.',
+            child: MenuAnchor(
+              // Opens beside the rail (and shifts up to fit), not over it.
+              alignmentOffset: const Offset(12, 0),
+              style: MenuStyle(
+                alignment: AlignmentDirectional.topEnd,
+                side: WidgetStatePropertyAll(BorderSide(color: c.outlineVariant)),
+                shape: WidgetStatePropertyAll(RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              ),
+              menuChildren: const [_AccountPanel()],
+              builder: (context, controller, _) => Tooltip(
+                message: tooltip,
+                child: Semantics(
+                  button: true,
+                  label: 'Snap Store account. $tooltip',
+                  excludeSemantics: true,
+                  child: InkWell(
+                    mouseCursor: WidgetStateMouseCursor.clickable,
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => controller.isOpen ? controller.close() : controller.open(),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                      child: SizedBox(
+                        width: compact ? 48 : 72,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            avatar,
+                            if (!compact) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                                style: context.text.labelMedium?.copyWith(
+                                  color: warn ? s.warning : c.onSurfaceVariant,
+                                  fontWeight: warn ? FontWeight.w600 : FontWeight.w500,
+                                ),
                               ),
-                            ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
                   ),

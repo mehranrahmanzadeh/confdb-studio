@@ -19,17 +19,36 @@ void main() {
       expect(s.id.path, 'system/validation-sets');
       expect(s.builtIn, isTrue);
       expect(s.views.map((v) => v.name), ['admin', 'pinning-admin', 'state']);
-      // A simple `content` (plain `storage` subkeys) collapses into one rule
-      // with that subset; more exotic shapes (here, nested `content` inside
-      // `content`) fall back to flattening into leaf rules.
+      // A simple `content` (plain, non-array `storage` subkeys, or a nested
+      // array element with its own `content` like `snaps[{n}]`) collapses
+      // into one rule with that tree; only a differing `request`/`access`
+      // forces a fall back to flattening into leaf rules (not exercised by
+      // this fixture's `admin` view, which collapses fully).
       final admin = s.view('admin')!;
-      expect(admin.rules.first.request, '{account}.{set-name}');
-      expect(admin.rules.first.storage, 'v1.{account}.{set-name}');
-      expect(admin.rules.first.content, ['pinned-sequence', 'mode']);
-      expect(admin.rules.first.access, RuleAccess.write);
-      expect(admin.rules[1].request, '{account}.{set-name}.snaps[{n}].name');
-      expect(admin.rules[1].storage, 'v1.{account}.{set-name}.snaps[{n}].name');
-      expect(admin.rules[1].content, isEmpty);
+      expect(admin.rules, hasLength(2));
+      expect(admin.rules[0].request, '{account}.{set-name}');
+      expect(admin.rules[0].storage, 'v1.{account}.{set-name}');
+      expect(admin.rules[0].access, RuleAccess.write);
+      expect(admin.rules[0].content, [const ContentField(key: 'pinned-sequence'), const ContentField(key: 'mode')]);
+      expect(admin.rules[1].request, '{account}.{set-name}');
+      expect(admin.rules[1].storage, 'v1.{account}.{set-name}');
+      expect(admin.rules[1].access, RuleAccess.read);
+      expect(admin.rules[1].content, [
+        const ContentField(
+          key: 'snaps[{n}]',
+          children: [
+            ContentField(key: 'name'),
+            ContentField(key: 'id'),
+            ContentField(key: 'revision'),
+            ContentField(key: 'presence'),
+          ],
+        ),
+        const ContentField(key: 'status'),
+        const ContentField(key: 'sequence'),
+        const ContentField(key: 'revision'),
+        const ContentField(key: 'pinned-sequence'),
+        const ContentField(key: 'mode'),
+      ]);
       expect(s.storage.lookup('v1'), isNotNull);
     });
 
@@ -52,7 +71,7 @@ void main() {
       final rule = views.single.rules.single;
       expect(rule.request, 'actuators.{act}');
       expect(rule.storage, 'actuators.{act}');
-      expect(rule.content, ['mode', 'manual-speed']);
+      expect(rule.content, [const ContentField(key: 'mode'), const ContentField(key: 'manual-speed')]);
 
       final encoded = encodeViews(views);
       expect((encoded['actuator-admin'] as Map)['rules'], [
@@ -66,6 +85,63 @@ void main() {
           ],
         },
       ]);
+    });
+
+    test('a rule\'s nested "content" (a subset of a subset) round-trips to and from JSON', () {
+      final views = decodeViews({
+        'actuator-admin': {
+          'rules': [
+            {
+              'request': 'actuators.{act}',
+              'storage': 'actuators.{act}',
+              'access': 'read-write',
+              'content': [
+                {
+                  'storage': 'limits',
+                  'content': [
+                    {'storage': 'min'},
+                    {'storage': 'max'},
+                  ],
+                },
+                {'storage': 'mode'},
+              ],
+            },
+          ],
+        },
+      });
+      final rule = views.single.rules.single;
+      expect(rule.content, [
+        const ContentField(
+          key: 'limits',
+          children: [
+            ContentField(key: 'min'),
+            ContentField(key: 'max'),
+          ],
+        ),
+        const ContentField(key: 'mode'),
+      ]);
+
+      final encoded = encodeViews(views);
+      expect((encoded['actuator-admin'] as Map)['rules'], [
+        {
+          'request': 'actuators.{act}',
+          'storage': 'actuators.{act}',
+          'access': 'read-write',
+          'content': [
+            {
+              'storage': 'limits',
+              'content': [
+                {'storage': 'min'},
+                {'storage': 'max'},
+              ],
+            },
+            {'storage': 'mode'},
+          ],
+        },
+      ]);
+
+      // Decoding the re-encoded JSON gives back the same subset.
+      expect(decodeViews(encoded).single.rules.single.content, rule.content);
     });
 
     test('round-trips the sample storage schema', () {

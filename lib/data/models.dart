@@ -48,6 +48,19 @@ String joinSegments(Iterable<String> segs) {
   return out;
 }
 
+/// The full storage path of every leaf in a `content` tree: [prefix] itself
+/// joined with each field's own key, recursing into any nested `children`.
+Iterable<String> _contentLeafPaths(String prefix, List<ContentField> fields) sync* {
+  for (final f in fields) {
+    final path = joinTreePath(prefix, f.key);
+    if (f.children.isEmpty) {
+      yield path;
+    } else {
+      yield* _contentLeafPaths(path, f.children);
+    }
+  }
+}
+
 /// `<account>/<schema>`, e.g. `acme/network`.
 @immutable
 class SchemaId {
@@ -135,6 +148,29 @@ enum RuleAccess {
   }
 }
 
+/// One entry of a view rule's `content`: a field exposed under the rule's
+/// storage, at any depth. Empty [children] means the whole subtree under
+/// [key] is exposed; a non-empty [children] exposes only that subset,
+/// recursively. [key] is a single storage-path segment relative to its
+/// parent (a plain field name, a `{placeholder}` map key, or a `[{n}]`/
+/// `[index]` array element), never dotted.
+@immutable
+class ContentField {
+  const ContentField({required this.key, this.children = const []});
+
+  final String key;
+  final List<ContentField> children;
+
+  ContentField copyWith({String? key, List<ContentField>? children}) =>
+      ContentField(key: key ?? this.key, children: children ?? this.children);
+
+  @override
+  bool operator ==(Object other) => other is ContentField && other.key == key && listEquals(other.children, children);
+
+  @override
+  int get hashCode => Object.hash(key, Object.hashAll(children));
+}
+
 /// Maps a request path (what snaps and users see) to a storage path.
 @immutable
 class ViewRule {
@@ -144,21 +180,21 @@ class ViewRule {
   final String storage;
   final RuleAccess access;
 
-  /// Child field names exposed individually instead of the whole map at
-  /// [storage] (confdb's `content` rules): each becomes its own leaf
-  /// `storage.field`, `request.field`, with the rule's own [access].
-  final List<String> content;
+  /// Fields exposed individually instead of the whole value at [storage]
+  /// (confdb's `content` rules), at any depth: each leaf becomes its own
+  /// `storage`/`request` path, with the rule's own [access].
+  final List<ContentField> content;
 
-  ViewRule copyWith({String? request, String? storage, RuleAccess? access, List<String>? content}) => ViewRule(
+  ViewRule copyWith({String? request, String? storage, RuleAccess? access, List<ContentField>? content}) => ViewRule(
     request: request ?? this.request,
     storage: storage ?? this.storage,
     access: access ?? this.access,
     content: content ?? this.content,
   );
 
-  /// The storage paths actually exposed: [storage] itself, or one per
-  /// [content] field when it's used to expose only a subset of a map.
-  Iterable<String> get exposedStoragePaths => content.isEmpty ? [storage] : [for (final f in content) joinTreePath(storage, f)];
+  /// The storage paths actually exposed: [storage] itself, or one per leaf
+  /// of [content] when it's used to expose only a subset.
+  Iterable<String> get exposedStoragePaths => content.isEmpty ? [storage] : _contentLeafPaths(storage, content);
 
   @override
   bool operator ==(Object other) =>

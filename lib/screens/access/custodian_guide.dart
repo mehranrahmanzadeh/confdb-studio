@@ -115,11 +115,11 @@ class _CustodianGuideState extends State<_CustodianGuide> {
     try {
       final change = await scope.repository.connect(plug);
       navigator.pop();
-      showToast(messenger, CodeText('Connected `${plug.id}` · change #${change.id}'));
+      showToast(messenger, CodeText('Connected `${plug.id}` · change #${change.id}'), kind: MessageKind.success);
     } catch (e) {
       if (mounted) {
         setState(() => _busy.remove(plug.id));
-        showConfirmation(context, Text('Couldn’t connect ${plug.id}: $e'));
+        showConfirmation(context, Text('Couldn’t connect ${plug.id}: $e'), kind: MessageKind.error);
       }
     }
   }

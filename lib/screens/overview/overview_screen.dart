@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/confdb_repository.dart';
 import '../../data/models.dart';
+import '../../shell/product_tour.dart';
 import '../../state/app_controller.dart';
 import '../../state/app_scope.dart';
 import '../../theme/app_theme.dart';
@@ -25,9 +26,33 @@ Future<_OverviewData> _load(ConfdbRepository repo) async {
 }
 
 /// 7.2 Overview (Main.dc.html, Main-Rev5, Main-Compact): the counts, every
-/// schema (the former 7.3 Schemas list).
-class OverviewScreen extends StatelessWidget {
-  const OverviewScreen({super.key});
+/// schema (the former 7.3 Schemas list). The user's first stop: right after
+/// enabling confdb, and on every later launch, so [route.justEnabled] shows a
+/// one-time confirmation and this is where the first-run tour starts.
+class OverviewScreen extends StatefulWidget {
+  const OverviewScreen({super.key, this.route = const OverviewRoute()});
+  final OverviewRoute route;
+
+  @override
+  State<OverviewScreen> createState() => _OverviewScreenState();
+}
+
+class _OverviewScreenState extends State<OverviewScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (widget.route.justEnabled) {
+        showConfirmation(
+          context,
+          const Text('Confdb enabled. `experimental.confdb=true` is now set for this system.'),
+          kind: MessageKind.success,
+        );
+      }
+      ProductTour.startIfNeeded(context, 'overview', TourKeys.overview);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -58,7 +83,13 @@ class _Header extends StatelessWidget {
         runSpacing: 8,
         children: [
           SecondaryButton(label: 'Manage access', icon: AppIcons.access, onPressed: () => app.go(const AccessRoute())),
-          PrimaryButton(label: 'New schema', icon: AppIcons.add, onPressed: () => app.go(const OnboardingRoute(choose: true))),
+          tourShowcase(
+            context,
+            key: TourKeys.newSchema,
+            title: 'New schema',
+            description: 'Start from a template, or import a signed assertion you already have.',
+            child: PrimaryButton(label: 'New schema', icon: AppIcons.add, onPressed: () => app.go(const OnboardingRoute(choose: true))),
+          ),
         ],
       ),
     );

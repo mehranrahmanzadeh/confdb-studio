@@ -243,18 +243,16 @@ class _RulesTableState extends State<RulesTable> {
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
       constraints: const BoxConstraints(minHeight: 40),
       // Matches the row's dropdown buttons: no fill, thin outlineVariant
-      // border at rest, 2px when focused or invalid.
+      // underline at rest, 2px when focused or invalid. These states must be
+      // set explicitly: the app's global OutlineInputBorder theme otherwise
+      // wins over a plain `border:` for the enabled/focused/error states.
       filled: false,
-      border: WidgetStateInputBorder.resolveWith((states) {
-        final side = states.contains(WidgetState.error)
-            ? BorderSide(color: c.error, width: 2)
-            : states.contains(WidgetState.focused)
-            ? BorderSide(color: c.primary, width: 2)
-            : states.contains(WidgetState.hovered)
-            ? BorderSide(color: c.outline)
-            : BorderSide(color: c.outlineVariant);
-        return OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: side);
-      }),
+      border: UnderlineInputBorder(borderSide: BorderSide(color: c.outlineVariant)),
+      enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.outlineVariant)),
+      disabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.outlineVariant)),
+      focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.primary, width: 2)),
+      errorBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.error, width: 2)),
+      focusedErrorBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.error, width: 2)),
       semanticCounterText: label,
     );
 
@@ -347,7 +345,6 @@ class _RulesTableState extends State<RulesTable> {
       ],
     );
 
-    final selected = r.content.toSet();
     final fields = mapNode == null
         ? const SizedBox.shrink()
         : MenuAnchor(
@@ -355,16 +352,16 @@ class _RulesTableState extends State<RulesTable> {
               MenuItemButton(
                 closeOnActivate: false,
                 onPressed: () => _set(i, r.copyWith(content: const [])),
-                leadingIcon: SizedBox(width: 20, child: selected.isEmpty ? const Icon(AppIcons.check, size: 20) : null),
+                leadingIcon: SizedBox(width: 20, child: r.content.isEmpty ? const Icon(AppIcons.check, size: 20) : null),
                 child: const Text('All fields'),
               ),
               const Divider(height: 1),
               for (final child in mapNode.children)
-                MenuItemButton(
-                  closeOnActivate: false,
-                  onPressed: () => _set(i, r.copyWith(content: _toggled(selected, child.key, !selected.contains(child.key)).toList())),
-                  leadingIcon: SizedBox(width: 20, child: selected.contains(child.key) ? const Icon(AppIcons.check, size: 20) : null),
-                  child: Text(child.key, style: context.text.bodyMedium?.mono),
+                _fieldMenuItem(
+                  node: child,
+                  level: r.content,
+                  onChanged: (next) => _set(i, r.copyWith(content: next)),
+                  mono: context.text.bodyMedium?.mono,
                 ),
             ],
             builder: (context, controller, _) => SizedBox(
@@ -379,13 +376,11 @@ class _RulesTableState extends State<RulesTable> {
                   minimumSize: const Size(0, 40),
                 ),
                 child: Semantics(
-                  label: 'Fields exposed for ${r.storage}: ${r.content.isEmpty ? 'All fields' : r.content.join(', ')}',
+                  label: 'Fields exposed for ${r.storage}: ${_contentSummary(r.content)}',
                   excludeSemantics: true,
                   child: Row(
                     children: [
-                      Expanded(
-                        child: Text(r.content.isEmpty ? 'All fields' : r.content.join(', '), maxLines: 1, overflow: TextOverflow.ellipsis),
-                      ),
+                      Expanded(child: Text(_contentSummary(r.content), maxLines: 1, overflow: TextOverflow.ellipsis)),
                       const Icon(AppIcons.expand, size: 18),
                     ],
                   ),
@@ -466,7 +461,113 @@ class _RulesTableState extends State<RulesTable> {
   }
 }
 
-Set<String> _toggled(Set<String> selected, String key, bool add) => add ? {...selected, key} : ({...selected}..remove(key));
+/// A short, dot-joined listing of every leaf field a rule's `content` tree
+/// exposes (relative to the rule's own storage path), or `'All fields'` when
+/// [content] is empty.
+String _contentSummary(List<ContentField> content) {
+  if (content.isEmpty) return 'All fields';
+  Iterable<String> leaves(String prefix, List<ContentField> fields) sync* {
+    for (final f in fields) {
+      final path = joinTreePath(prefix, f.key);
+      if (f.children.isEmpty) {
+        yield path;
+      } else {
+        yield* leaves(path, f.children);
+      }
+    }
+  }
+
+  return leaves('', content).join(', ');
+}
+
+/// Whether a storage node can itself be drilled into in the fields menu: a
+/// map with fixed keys (recurse into its children), or an array whose
+/// elements are such a map (recurse into the element's children, keyed
+/// together with the node's own key, e.g. `snaps[{n}]`, matching how a
+/// single `content` entry addresses an array's elements).
+List<StorageNode> _expandableFieldsOf(StorageNode node) {
+  if (node.isMap) return node.children;
+  if (node.hasMapElement) return node.element!.children;
+  return const [];
+}
+
+/// The key a storage node's own entry uses in a `content` tree: its own key
+/// for a map field, or that key combined with the array-element marker
+/// (`snaps[{n}]`) for an array of maps.
+String _contentKeyOf(StorageNode node) => node.hasMapElement ? joinTreePath(node.key, StorageNode.indexKey) : node.key;
+
+/// One row of the recursive "Fields exposed" menu: a plain toggle for a leaf
+/// field, or a [SubmenuButton] with its own "All fields" item and nested
+/// rows for a map field (or an array of maps) with fixed keys.
+///
+/// Semantics live entirely in [level], the list this field's own
+/// [ContentField] entry (if any) belongs to: an empty [level] means
+/// everything at this level is exposed (nothing has been narrowed yet), so
+/// picking one field replaces the whole level with just that field; a
+/// non-empty [level] is already an explicit subset, so picking toggles that
+/// one field's membership without disturbing the rest.
+Widget _fieldMenuItem({
+  required StorageNode node,
+  required List<ContentField> level,
+  required void Function(List<ContentField> next) onChanged,
+  required TextStyle? mono,
+}) {
+  final key = _contentKeyOf(node);
+  // An array of maps can be fully included two ways in `content`: a plain
+  // `storage: snaps` entry (no narrowing), or `storage: snaps[{n}]` with
+  // nested `content` (narrowed to a subset of element fields). Both address
+  // the same slot, so matching/removal must treat either key as "this
+  // field's" entry, or a stale plain entry would linger alongside a newly
+  // narrowed one.
+  final altKey = node.hasMapElement ? node.key : null;
+  bool isThisField(ContentField f) => f.key == key || f.key == altKey;
+  final existing = level.where(isThisField).firstOrNull;
+  final included = existing != null && existing.children.isEmpty;
+  final partial = existing != null && existing.children.isNotEmpty;
+  final icon = included
+      ? const Icon(AppIcons.check, size: 20)
+      : partial
+      ? const Icon(AppIcons.dash, size: 20)
+      : null;
+
+  List<ContentField> withReplaced(List<ContentField> children) => [
+    for (final f in level)
+      if (!isThisField(f)) f,
+    ContentField(key: key, children: children),
+  ];
+  List<ContentField> withRemoved() => [
+    for (final f in level)
+      if (!isThisField(f)) f,
+  ];
+
+  void toggleFull() => onChanged(level.isEmpty ? [ContentField(key: key)] : (included ? withRemoved() : withReplaced(const [])));
+
+  final expandable = _expandableFieldsOf(node);
+  if (expandable.isEmpty) {
+    return MenuItemButton(
+      closeOnActivate: false,
+      onPressed: toggleFull,
+      leadingIcon: SizedBox(width: 20, child: icon),
+      child: Text(key, style: mono),
+    );
+  }
+  final childLevel = partial ? existing.children : const <ContentField>[];
+  return SubmenuButton(
+    leadingIcon: SizedBox(width: 20, child: icon),
+    menuChildren: [
+      MenuItemButton(
+        closeOnActivate: false,
+        onPressed: toggleFull,
+        leadingIcon: SizedBox(width: 20, child: included ? const Icon(AppIcons.check, size: 20) : null),
+        child: const Text('All fields'),
+      ),
+      const Divider(height: 1),
+      for (final grandchild in expandable)
+        _fieldMenuItem(node: grandchild, level: childLevel, onChanged: (next) => onChanged(withReplaced(next)), mono: mono),
+    ],
+    child: Text(key, style: mono),
+  );
+}
 
 /// Storage path combobox: suggests storage leaves with their type, whether
 /// they are ephemeral, and how many views use them.

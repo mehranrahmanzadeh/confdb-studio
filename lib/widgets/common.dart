@@ -502,30 +502,61 @@ class CountPill extends StatelessWidget {
   );
 }
 
-/// Shows a confirmation SnackBar (with an optional "View" or "Undo" action).
-void showConfirmation(BuildContext context, Widget message, {String? actionLabel, VoidCallback? onAction}) =>
-    showToast(ScaffoldMessenger.of(context), message, actionLabel: actionLabel, onAction: onAction);
+/// Shows a confirmation SnackBar (with an optional "View" or "Undo" action),
+/// tinted by [kind] (success/error/warning/info) to match [InlineMessage].
+void showConfirmation(
+  BuildContext context,
+  Widget message, {
+  String? actionLabel,
+  VoidCallback? onAction,
+  MessageKind kind = MessageKind.info,
+}) => showToast(ScaffoldMessenger.of(context), message, actionLabel: actionLabel, onAction: onAction, kind: kind);
 
 /// Every confirmation goes through here. Flutter keeps a SnackBar with an
 /// action on screen until dismissed (`persist` defaults to true then), so
 /// confirmations opt out: they hide after [duration] and have a close button.
+/// Colored and iconed by [kind], same palette as [InlineMessage].
 void showToast(
   ScaffoldMessengerState messenger,
   Widget message, {
   String? actionLabel,
   VoidCallback? onAction,
   Duration duration = const Duration(seconds: 6),
+  MessageKind kind = MessageKind.info,
 }) {
+  final context = messenger.context;
+  final c = context.colors;
+  final s = context.status;
+  final (bg, fg, icon) = switch (kind) {
+    MessageKind.error => (c.errorContainer, c.onErrorContainer, AppIcons.error),
+    MessageKind.warning => (s.warningContainer, s.onWarningContainer, AppIcons.warning),
+    MessageKind.info => (s.informationContainer, s.onInformationContainer, AppIcons.info),
+    MessageKind.success => (s.successContainer, s.onSuccessContainer, AppIcons.ok),
+  };
   messenger.hideCurrentSnackBar();
   messenger.showSnackBar(
     SnackBar(
-      content: message,
+      backgroundColor: bg,
+      closeIconColor: fg,
+      content: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: fg, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: DefaultTextStyle.merge(
+              style: context.text.bodyMedium?.copyWith(color: fg),
+              child: message,
+            ),
+          ),
+        ],
+      ),
       width: 480,
       duration: duration,
       persist: false,
       showCloseIcon: true,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-      action: actionLabel == null ? null : SnackBarAction(label: actionLabel, onPressed: onAction ?? () {}),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(ConfdbRadii.card)),
+      action: actionLabel == null ? null : SnackBarAction(label: actionLabel, textColor: fg, onPressed: onAction ?? () {}),
     ),
   );
 }

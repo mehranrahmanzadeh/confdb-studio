@@ -5,6 +5,7 @@ import '../state/app_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
 import 'account_button.dart';
+import 'product_tour.dart';
 import 'snapd_status.dart';
 
 /// Rail.dc.html: Overview (with the schemas), Data, Access. Icons only (with
@@ -22,10 +23,27 @@ class AppRail extends StatelessWidget {
     (Destination.access, 'Access', AppIcons.access, AppIcons.accessSelected),
   ];
 
+  static const _tourCopy = {
+    Destination.overview: ('Schemas', 'Every schema you own or can see lives here, local and Snap Store alike.'),
+    Destination.data: ('Data', 'Browse and edit the live confdb data behind each view.'),
+    Destination.access: ('Access', 'See which snaps plug which views, and manage who can read or write what.'),
+  };
+
+  static final _tourKeys = {
+    Destination.overview: TourKeys.railSchema,
+    Destination.data: TourKeys.railData,
+    Destination.access: TourKeys.railAccess,
+  };
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    Widget icon(IconData i, String label) => compact ? Tooltip(message: label, child: Icon(i)) : Icon(i);
+    Widget icon(Destination d, IconData i, String label) {
+      final plain = compact ? Tooltip(message: label, child: Icon(i)) : Icon(i);
+      final (title, description) = _tourCopy[d]!;
+      return tourShowcase(context, key: _tourKeys[d]!, title: title, description: description, child: plain);
+    }
+
     return Container(
       decoration: BoxDecoration(
         border: Border(right: BorderSide(color: c.outlineVariant)),
@@ -48,8 +66,8 @@ class AppRail extends StatelessWidget {
           selectedLabelTextStyle: context.text.labelMedium?.copyWith(fontWeight: FontWeight.w700, color: c.onSurface, letterSpacing: 0.5),
           unselectedLabelTextStyle: context.text.labelMedium?.copyWith(color: c.onSurfaceVariant, letterSpacing: 0.5),
           destinations: [
-            for (final (_, label, i, sel) in _items)
-              NavigationRailDestination(icon: icon(i, label), selectedIcon: icon(sel, label), label: Text(label)),
+            for (final (d, label, i, sel) in _items)
+              NavigationRailDestination(icon: icon(d, i, label), selectedIcon: icon(d, sel, label), label: Text(label)),
           ],
         ),
       ),
