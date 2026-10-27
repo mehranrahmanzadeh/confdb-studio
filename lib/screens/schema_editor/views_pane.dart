@@ -27,12 +27,17 @@ class ViewsPane extends StatefulWidget {
     required this.issues,
     required this.onSelect,
     required this.onAdd,
+    this.onCollapse,
   });
   final ConfdbSchema draft;
   final String? selected;
   final List<LintIssue> issues;
   final void Function(String view, {String? rule}) onSelect;
   final ValueChanged<String> onAdd;
+
+  /// Shows a collapse button in the header when set (desktop layout only;
+  /// the compact layout uses [ViewsSelect] instead and has no need for it).
+  final VoidCallback? onCollapse;
 
   @override
   State<ViewsPane> createState() => _ViewsPaneState();
@@ -87,6 +92,17 @@ class _ViewsPaneState extends State<ViewsPane> {
                     child: Semantics(header: true, child: Text('Views', style: context.text.titleSmall)),
                   ),
                   Text('${views.length}', style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
+                  if (widget.onCollapse != null) ...[
+                    const SizedBox(width: 4),
+                    IconButton(
+                      icon: const Icon(AppIcons.panelCollapseLeft, size: 18),
+                      tooltip: 'Collapse views panel',
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                      onPressed: widget.onCollapse,
+                    ),
+                  ],
                 ],
               ),
             ),

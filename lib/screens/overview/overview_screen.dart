@@ -44,7 +44,11 @@ class _OverviewScreenState extends State<OverviewScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       if (widget.route.justEnabled) {
-        showConfirmation(context, const Text('Confdb enabled. `experimental.confdb=true` is now set for this system.'));
+        showConfirmation(
+          context,
+          const Text('Confdb enabled. `experimental.confdb=true` is now set for this system.'),
+          kind: MessageKind.success,
+        );
       }
       ProductTour.startIfNeeded(context, 'overview', TourKeys.overview);
     });

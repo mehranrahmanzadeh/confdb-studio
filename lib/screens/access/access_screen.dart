@@ -148,9 +148,9 @@ class _AccessBodyState extends State<_AccessBody> {
     setState(() => _busy.add(plug.id));
     try {
       final change = await scope.repository.connect(plug);
-      showToast(messenger, CodeText('Connected `${plug.id}` · change #${change.id}'));
+      showToast(messenger, CodeText('Connected `${plug.id}` · change #${change.id}'), kind: MessageKind.success);
     } catch (e) {
-      if (mounted) showConfirmation(context, Text('Couldn’t connect ${plug.id}: $e'));
+      if (mounted) showConfirmation(context, Text('Couldn’t connect ${plug.id}: $e'), kind: MessageKind.error);
     } finally {
       if (mounted) setState(() => _busy.remove(plug.id));
     }
@@ -169,9 +169,9 @@ class _AccessBodyState extends State<_AccessBody> {
     setState(() => _busy.add(plug.id));
     try {
       final change = await scope.repository.disconnect(plug);
-      showToast(messenger, CodeText('Disconnected `${plug.id}` · change #${change.id}'));
+      showToast(messenger, CodeText('Disconnected `${plug.id}` · change #${change.id}'), kind: MessageKind.success);
     } catch (e) {
-      if (mounted) showConfirmation(context, Text('Couldn’t disconnect ${plug.id}: $e'));
+      if (mounted) showConfirmation(context, Text('Couldn’t disconnect ${plug.id}: $e'), kind: MessageKind.error);
     } finally {
       if (mounted) setState(() => _busy.remove(plug.id));
     }

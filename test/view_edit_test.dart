@@ -54,4 +54,19 @@ void main() {
     final draft = drafts.singleWhere((d) => d.id == networkId);
     expect(draft.view('wifi-state')!.summary, 'Wi-Fi connection state');
   });
+
+  testWidgets('the views panel can be collapsed and expanded', (tester) async {
+    await open(tester, repo(), const SchemaEditorRoute(networkId, view: 'wifi-state'));
+    expect(find.byTooltip('Collapse views panel'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Collapse views panel'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Collapse views panel'), findsNothing);
+    expect(find.byTooltip('Expand views panel'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Expand views panel'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Collapse views panel'), findsOneWidget);
+    expect(find.byTooltip('Expand views panel'), findsNothing);
+  });
 }

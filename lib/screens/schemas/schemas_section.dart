@@ -45,7 +45,7 @@ Future<void> importSchemaFromDisk(BuildContext context) async {
     final draft = await scope.repository.importSchema(file.path);
     scope.app.go(SchemaEditorRoute(draft.id));
   } catch (e) {
-    if (context.mounted) showConfirmation(context, Text('Couldn’t import ${file.name}: $e'));
+    if (context.mounted) showConfirmation(context, Text('Couldn’t import ${file.name}: $e'), kind: MessageKind.error);
   }
 }
 
@@ -62,8 +62,6 @@ class SchemasSection extends StatefulWidget {
 
 class _SchemasSectionState extends State<SchemasSection> {
   final _search = TextEditingController();
-  bool _problems = false;
-  bool _draftsOnly = false;
 
   @override
   void initState() {
@@ -106,46 +104,28 @@ class _SchemasSectionState extends State<SchemasSection> {
 
   Widget _toolbar(BuildContext context, SchemasData? data) {
     final c = context.colors;
-    final withProblems = data == null ? 0 : _merged(data).where((s) => lintSchema(s).isNotEmpty).length;
-    final drafts = data?.drafts.length ?? 0;
     return Wrap(
       spacing: 12,
       runSpacing: 12,
       crossAxisAlignment: WrapCrossAlignment.center,
       alignment: WrapAlignment.spaceBetween,
       children: [
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            SizedBox(
-              width: 360,
-              child: TextField(
-                controller: _search,
-                enabled: data != null,
-                decoration: const InputDecoration(
-                  hintText: 'Search schemas',
-                  prefixIcon: Icon(AppIcons.search),
-                  contentPadding: EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
+        SizedBox(
+          width: 360,
+          child: TextField(
+            controller: _search,
+            enabled: data != null,
+            decoration: InputDecoration(
+              hintText: 'Search schemas',
+              prefixIcon: const Icon(AppIcons.search),
+              contentPadding: const EdgeInsets.symmetric(vertical: 11),
+              filled: false,
+              border: UnderlineInputBorder(borderSide: BorderSide(color: c.outlineVariant)),
+              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.outlineVariant)),
+              disabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.outlineVariant)),
+              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.primary, width: 2)),
             ),
-            FilterChip(
-              mouseCursor: WidgetStateMouseCursor.clickable,
-              avatar: Icon(AppIcons.warning, size: 18, color: c.onSurfaceVariant),
-              label: Text('Has problems · $withProblems'),
-              selected: _problems,
-              onSelected: data == null ? null : (v) => setState(() => _problems = v),
-            ),
-            FilterChip(
-              mouseCursor: WidgetStateMouseCursor.clickable,
-              avatar: Icon(AppIcons.edit, size: 18, color: c.onSurfaceVariant),
-              label: Text('Drafts · $drafts'),
-              selected: _draftsOnly,
-              onSelected: data == null ? null : (v) => setState(() => _draftsOnly = v),
-            ),
-          ],
+          ),
         ),
         Wrap(
           spacing: 12,
@@ -226,11 +206,8 @@ class _SchemasSectionState extends State<SchemasSection> {
       );
     }
     final q = _search.text.trim().toLowerCase();
-    final draftIds = {for (final d in data.drafts) d.id};
     final shown = all.where((s) {
       if (q.isNotEmpty && !s.id.path.toLowerCase().contains(q) && !s.summary.toLowerCase().contains(q)) return false;
-      if (_draftsOnly && !draftIds.contains(s.id)) return false;
-      if (_problems && lintSchema(data.drafts.where((d) => d.id == s.id).firstOrNull ?? s).isEmpty) return false;
       return true;
     }).toList();
     if (shown.isEmpty) {
@@ -238,15 +215,7 @@ class _SchemasSectionState extends State<SchemasSection> {
         icon: AppIcons.search,
         title: 'No schemas match',
         body: Text('${plural(all.length, 'schema')} in total.'),
-        actions: [
-          SecondaryButton(
-            label: 'Clear filters',
-            onPressed: () => setState(() {
-              _search.clear();
-              _problems = _draftsOnly = false;
-            }),
-          ),
-        ],
+        actions: [SecondaryButton(label: 'Clear search', onPressed: () => setState(_search.clear))],
       );
     }
     final groups = <String, List<ConfdbSchema>>{};
@@ -606,7 +575,7 @@ class _SchemaTableState extends State<_SchemaTable> {
     if (!ok) return;
     try {
       await store.push(device.id);
-      showToast(messenger, CodeText('Pushed `$path` rev ${device.revision} to the Snap Store'));
+      showToast(messenger, CodeText('Pushed `$path` rev ${device.revision} to the Snap Store'), kind: MessageKind.success);
     } catch (e) {
       if (context.mounted) await _failed(context, 'Couldn’t push `$path`', e);
     }
@@ -629,7 +598,7 @@ class _SchemaTableState extends State<_SchemaTable> {
     if (!ok) return;
     try {
       await store.install(id);
-      showToast(messenger, CodeText('Installed `$path` from the Snap Store'));
+      showToast(messenger, CodeText('Installed `$path` from the Snap Store'), kind: MessageKind.success);
     } catch (e) {
       if (context.mounted) await _failed(context, 'Couldn’t install `$path`', e);
     }

@@ -203,7 +203,7 @@ class _ChooseState extends State<_Choose> {
     } catch (e) {
       if (mounted) {
         setState(() => _busy = false);
-        showConfirmation(context, Text('Couldn’t create the draft: $e'));
+        showConfirmation(context, Text('Couldn’t create the draft: $e'), kind: MessageKind.error);
       }
     }
   }

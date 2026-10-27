@@ -126,6 +126,7 @@ class _SignDialogState extends State<_SignDialog> {
               ? '`${widget.draft.id.path}` revision $revision signed, pushed to the Snap Store and acknowledged'
               : '`${widget.draft.id.path}` revision $revision signed and acknowledged',
         ),
+        kind: MessageKind.success,
       );
     } catch (e) {
       if (mounted) {

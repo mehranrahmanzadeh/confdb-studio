@@ -75,7 +75,7 @@ class _SigningKeyPanelState extends State<SigningKeyPanel> {
       _pendingSelect = key.name;
       _refreshKeys();
     } catch (e) {
-      if (mounted) showToast(messenger, CodeText('Couldn’t create `$name`: $e'));
+      if (mounted) showToast(messenger, CodeText('Couldn’t create `$name`: $e'), kind: MessageKind.error);
     } finally {
       if (mounted) setState(() => _creatingKey = false);
     }
@@ -90,7 +90,7 @@ class _SigningKeyPanelState extends State<SigningKeyPanel> {
       if (!mounted) return;
       _pendingSelect = key.name;
       _refreshKeys();
-      showToast(messenger, CodeText('`${key.name}` is now registered to the Snap Store.'));
+      showToast(messenger, CodeText('`${key.name}` is now registered to the Snap Store.'), kind: MessageKind.success);
     } on ConfdbException catch (e) {
       if (!mounted) return;
       if (e.kind == ConfdbErrorKind.signedOut && !retried) {
@@ -104,10 +104,10 @@ class _SigningKeyPanelState extends State<SigningKeyPanel> {
         final loggedIn = await showStoreLoginDialog(context);
         if (loggedIn && mounted) await _registerKey(key, digests, retried: true);
       } else {
-        showToast(messenger, CodeText('Couldn’t register `${key.name}`: $e'));
+        showToast(messenger, CodeText('Couldn’t register `${key.name}`: $e'), kind: MessageKind.error);
       }
     } catch (e) {
-      if (mounted) showToast(messenger, CodeText('Couldn’t register `${key.name}`: $e'));
+      if (mounted) showToast(messenger, CodeText('Couldn’t register `${key.name}`: $e'), kind: MessageKind.error);
     } finally {
       if (mounted) setState(() => _registeringKeyName = null);
     }

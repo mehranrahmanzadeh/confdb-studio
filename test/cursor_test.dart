@@ -33,7 +33,7 @@ void main() {
       'rail destination padding': tester.getTopLeft(find.text('Data')) + const Offset(-14, -6),
       'account button': tester.getCenter(find.descendant(of: find.byType(AccountButton), matching: find.text('acme'))),
       'filled button': tester.getCenter(find.text('New schema')),
-      'filter chip': tester.getCenter(find.textContaining('Drafts')),
+      'secondary button': tester.getCenter(find.text('Import')),
       'icon button': tester.getCenter(find.byTooltip('Actions for acme/network')),
       'schema name link': tester.getCenter(find.text('telemetry')),
     };

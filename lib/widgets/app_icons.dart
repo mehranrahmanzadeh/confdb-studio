@@ -38,6 +38,8 @@ abstract final class AppIcons {
   static const expand = Icons.expand_more;
   static const collapse = Icons.expand_less;
   static const chevronRight = Icons.chevron_right;
+  static const panelCollapseLeft = Icons.first_page;
+  static const panelExpandRight = Icons.last_page;
   static const search = Icons.search;
   static const retry = Icons.refresh;
   static const play = Icons.play_arrow_outlined;

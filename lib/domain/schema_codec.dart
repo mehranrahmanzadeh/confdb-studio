@@ -336,10 +336,15 @@ List<ViewDef> decodeViews(Object? json) {
   ];
 }
 
-/// Decodes a top-level view rule. A `content` of plain `{storage: field}`
-/// entries (the shape this editor itself writes, and snapd's common case)
-/// collapses into a single [ViewRule] with that subset of fields; anything
-/// more exotic (its own `request`/`access`, or further nesting) falls back to
+/// Decodes a top-level view rule. A `content` made of plain `{storage:
+/// field}` entries, possibly nested arbitrarily deep (the shape this editor
+/// itself writes, and snapd's common case) collapses into a single
+/// Decodes a top-level view rule. A `content` made of plain `{storage: key}`
+/// entries, possibly nested arbitrarily deep (the shape this editor itself
+/// writes, and snapd's common case, including array elements like
+/// `snaps[{n}]` or map placeholders like `{component}` as a key) collapses
+/// into a single [ViewRule] whose `content` mirrors that tree; anything more
+/// exotic at any depth (its own `request`/`access`) falls back to
 /// [_flattenRule], so no information is lost even though the editor can't
 /// show it as a subset picker.
 List<ViewRule> _decodeRule(Map r) {
@@ -349,22 +354,45 @@ List<ViewRule> _decodeRule(Map r) {
   final access = r['access'] is String ? RuleAccess.parse(r['access'] as String) : RuleAccess.readWrite;
   final content = r['content'];
   if (content is List && content.isNotEmpty) {
-    final fields = <String>[];
-    for (final c in content) {
-      final simple =
-          c is Map &&
-          c['storage'] is String &&
-          !(c['storage'] as String).contains('.') &&
-          !(c['storage'] as String).startsWith('[') &&
-          (c['request'] == null || c['request'] == c['storage']) &&
-          c['access'] == null &&
-          c['content'] == null;
-      if (!simple) return _flattenRule(r, null, null, null);
-      fields.add(c['storage'] as String);
-    }
+    final fields = _simpleContentFields(content);
+    if (fields == null) return _flattenRule(r, null, null, null);
     return [ViewRule(request: request, storage: storage, access: access, content: fields)];
   }
   return [ViewRule(request: request, storage: storage, access: access)];
+}
+
+/// Parses a `content` list into the [ContentField] tree it exposes,
+/// recursively collapsing further nesting the same way. Returns null if any
+/// entry at any depth isn't simple enough to represent as a field subset: a
+/// dotted or standalone-index `storage` (not a named field, e.g. `[{n}]`
+/// nested under a plain list), a `request` different from its own `storage`,
+/// or non-default `access`.
+List<ContentField>? _simpleContentFields(List content) {
+  final fields = <ContentField>[];
+  for (final c in content) {
+    if (c is! Map) return null;
+    final key = c['storage'];
+    // A standalone array-index entry (e.g. `storage: [{n}]`, nested under a
+    // plain list rather than a map/array-of-maps field) isn't a named field
+    // and can't be a `ContentField`; combined keys like `snaps[{n}]` are
+    // fine, since they're an opaque single tree-node key.
+    if (key is! String ||
+        key.contains('.') ||
+        key.startsWith('[') ||
+        (c['request'] != null && c['request'] != key) ||
+        c['access'] != null) {
+      return null;
+    }
+    final nested = c['content'];
+    if (nested is List && nested.isNotEmpty) {
+      final sub = _simpleContentFields(nested);
+      if (sub == null) return null;
+      fields.add(ContentField(key: key, children: sub));
+    } else {
+      fields.add(ContentField(key: key));
+    }
+  }
+  return fields;
 }
 
 /// Flattens nested `content` rules into leaf rules: a child's request and
@@ -431,14 +459,17 @@ Map<String, Object?> encodeViews(List<ViewDef> views) => {
             'request': r.request,
             'storage': r.storage,
             'access': r.access.label,
-            if (r.content.isNotEmpty)
-              'content': [
-                for (final f in r.content) {'storage': f},
-              ],
+            if (r.content.isNotEmpty) 'content': _encodeContent(r.content),
           },
       ],
     },
 };
+
+/// Builds the `content` JSON for one rule's exposed field subset: a direct
+/// mirror of the [ContentField] tree.
+List<Map<String, Object?>> _encodeContent(List<ContentField> content) => [
+  for (final f in content) {'storage': f.key, if (f.children.isNotEmpty) 'content': _encodeContent(f.children)},
+];
 
 // ------------------------------------------------------------ sign input
 

@@ -120,6 +120,7 @@ class _EditorState extends State<_Editor> {
   late String? _focusPath = _editRoute?.focusStoragePath;
   String? _focusRule;
   bool _json = false;
+  bool _viewsCollapsed = false;
   Timer? _save;
 
   /// Chosen on the signing-key step; carried along so it survives going
@@ -451,28 +452,34 @@ class _EditorState extends State<_Editor> {
   });
 
   static const _minSide = 200.0, _maxViews = 480.0, _minStorage = 280.0, _maxStorage = 760.0, _minCenter = 530.0;
+  static const _collapsedViewsWidth = 40.0;
 
   /// Views | rules | storage, with draggable dividers. The middle column
-  /// keeps at least [_minCenter]; side panes stay within their limits.
+  /// keeps at least [_minCenter]; side panes stay within their limits. The
+  /// views pane can also be collapsed to a narrow strip via [_viewsCollapsed].
   Widget _resizableRow(double total, Widget views, Widget center, Widget storage) {
     final app = context.app;
     final room = total - 2 * ResizeHandle.width - _minCenter;
     double clampViews(double w, double right) => w.clamp(_minSide, (room - right).clamp(_minSide, _maxViews));
     double clampStorage(double w, double left) => w.clamp(_minStorage, (room - left).clamp(_minStorage, _maxStorage));
-    var right = clampStorage(_json ? app.jsonPaneWidth : app.treePaneWidth, _minSide);
-    final left = clampViews(app.viewsPaneWidth, right);
+    var right = clampStorage(_json ? app.jsonPaneWidth : app.treePaneWidth, _viewsCollapsed ? _collapsedViewsWidth : _minSide);
+    final left = _viewsCollapsed ? _collapsedViewsWidth : clampViews(app.viewsPaneWidth, right);
     right = clampStorage(right, left);
     void setRight(double w) => setState(() => _json ? app.jsonPaneWidth = w : app.treePaneWidth = w);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SizedBox(width: left, child: views),
-        ResizeHandle(
-          label: 'Resize views panel',
-          // From the stored width, not this build's: several moves can land in one frame.
-          onDrag: (dx) => setState(() => app.viewsPaneWidth = clampViews(clampViews(app.viewsPaneWidth, right) + dx, right)),
-          onReset: () => setState(() => app.viewsPaneWidth = AppController.defaultViewsPaneWidth),
+        SizedBox(
+          width: left,
+          child: _viewsCollapsed ? _CollapsedViewsStrip(onExpand: () => setState(() => _viewsCollapsed = false)) : views,
         ),
+        if (!_viewsCollapsed)
+          ResizeHandle(
+            label: 'Resize views panel',
+            // From the stored width, not this build's: several moves can land in one frame.
+            onDrag: (dx) => setState(() => app.viewsPaneWidth = clampViews(clampViews(app.viewsPaneWidth, right) + dx, right)),
+            onReset: () => setState(() => app.viewsPaneWidth = AppController.defaultViewsPaneWidth),
+          ),
         Expanded(child: center),
         ResizeHandle(
           label: 'Resize storage panel',
@@ -614,7 +621,14 @@ class _EditorState extends State<_Editor> {
                       key: TourKeys.editorViews,
                       title: 'Views',
                       description: 'Views are the endpoints snaps read and write confdb through; pick one to edit its rules.',
-                      child: ViewsPane(draft: _draft, selected: _view, issues: issues, onSelect: _selectView, onAdd: _addView),
+                      child: ViewsPane(
+                        draft: _draft,
+                        selected: _view,
+                        issues: issues,
+                        onSelect: _selectView,
+                        onAdd: _addView,
+                        onCollapse: () => setState(() => _viewsCollapsed = true),
+                      ),
                     ),
                     center,
                     storage,
@@ -622,6 +636,47 @@ class _EditorState extends State<_Editor> {
                 ),
         ),
       ],
+    );
+  }
+}
+
+/// The collapsed views pane: a narrow strip with a button to expand it back.
+class _CollapsedViewsStrip extends StatelessWidget {
+  const _CollapsedViewsStrip({required this.onExpand});
+  final VoidCallback onExpand;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Semantics(
+      button: true,
+      label: 'Expand views panel',
+      child: Material(
+        color: c.surface,
+        child: InkWell(
+          onTap: onExpand,
+          child: Tooltip(
+            message: 'Expand views panel',
+            waitDuration: const Duration(milliseconds: 500),
+            child: Column(
+              children: [
+                const SizedBox(height: 8),
+                Icon(AppIcons.panelExpandRight, size: 20, color: c.onSurfaceVariant),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: RotatedBox(
+                    quarterTurns: 3,
+                    child: Text(
+                      'Views',
+                      style: context.text.labelMedium?.copyWith(color: c.onSurfaceVariant, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
