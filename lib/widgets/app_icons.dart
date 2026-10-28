@@ -46,7 +46,7 @@ abstract final class AppIcons {
   static const delete = Icons.delete_outline;
   static const key = Icons.key_outlined;
 
-  /// A map placeholder: any key (`{key}`).
+  /// A map placeholder: any key (`{placeholder}`).
   static const placeholder = Icons.data_object;
   static const upload = Icons.upload_outlined;
   static const template = Icons.space_dashboard_outlined;

@@ -237,6 +237,58 @@ void main() {
     await tester.pump(const Duration(milliseconds: 500)); // draft autosave
   });
 
+  testWidgets("the storage path dropdown and selection show a map placeholder as '{placeholder}', not the internal {key} marker", (
+    tester,
+  ) async {
+    await openEditor(tester);
+
+    // A map with a placeholder (any key): "actuators.{placeholder}".
+    await tester.tap(find.byTooltip('Add storage path or alias'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add storage path'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Key'), 'actuators');
+    await tester.tap(find.widgetWithText(TextField, 'Type'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('map').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Actions for actuators'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add placeholder'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextField, 'Value type'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('string').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Add'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Add rule'));
+    await tester.tap(find.text('Add rule'));
+    await tester.pumpAndSettle();
+    final storage = find.byWidgetPredicate((w) => w is TextField && w.controller?.text == '' && w.decoration?.hintText == 'storage.path');
+    await tester.enterText(storage, 'actuators');
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('actuators.{placeholder}'), findsOneWidget);
+    expect(find.textContaining('{key}'), findsNothing);
+
+    await tester.tap(find.text('actuators.{placeholder}'));
+    await tester.pumpAndSettle();
+
+    final storageAfter = find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.hintText == 'storage.path' && w.controller?.text == 'actuators.{placeholder}',
+    );
+    expect(storageAfter, findsOneWidget);
+    expect((tester.widget(storageAfter) as TextField).controller?.text, 'actuators.{placeholder}');
+    expect(find.textContaining('{key}'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 500)); // draft autosave
+  });
+
   testWidgets('dragging a rule\'s handle reorders it within the view', (tester) async {
     await openEditor(tester);
 

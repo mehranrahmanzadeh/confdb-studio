@@ -289,7 +289,7 @@ class StorageNode {
   });
 
   /// The path segment for a map's values: any key (a placeholder in rules).
-  static const placeholderKey = '{key}';
+  static const placeholderKey = '{placeholder}';
 
   /// The path segment for an array's elements: one per index.
   static const indexKey = '[{n}]';
@@ -355,7 +355,7 @@ class StorageNode {
   /// A map whose keys are free (`"values"`) rather than fixed (`"schema"`).
   bool get hasPlaceholder => isMap && children.isEmpty && (valuesNode != null || valuesType != null);
 
-  /// [key] for display: the internal `{key}` marker reads as `<placeholder>`.
+  /// [key] for display: the internal `{placeholder}` marker reads as `<placeholder>`.
   String get displayKey => key == placeholderKey ? '<placeholder>' : key;
 
   bool get isMap => kind == StorageKind.map;

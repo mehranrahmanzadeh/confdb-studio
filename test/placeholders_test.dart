@@ -110,7 +110,7 @@ void main() {
     });
     // The referencing node still behaves like the alias's own type (a map
     // with `mode`/`speed`), for lint, the tree view, etc.
-    final actuator = again.storage.lookup('actuators.{key}')!;
+    final actuator = again.storage.lookup('actuators.{placeholder}')!;
     expect(actuator.aliasRef, 'actuator');
     expect(actuator.lookup('mode')!.kind, StorageKind.string);
   });

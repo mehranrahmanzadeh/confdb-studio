@@ -39,7 +39,7 @@ List<String?> mapPaths(StorageNode root) => [
 ];
 
 /// Replaces the node at [path] with [node], keeping its position among siblings.
-/// A `{key}` segment is a map's placeholder (its values); a `[{n}]` segment is
+/// A `{placeholder}` segment is a map's placeholder (its values); a `[{n}]` segment is
 /// an array's map-typed element.
 StorageNode replaceAt(StorageNode root, String path, StorageNode node) {
   final segs = splitTreePath(path);
@@ -78,7 +78,7 @@ StorageNode removeAt(StorageNode root, String path) {
 
 /// Points rules at [to] where they pointed at [from] (or below it). [from]
 /// and [to] differ in their last key; placeholders in a rule's storage match
-/// the tree's `{key}`, and its own names and field filters are kept.
+/// the tree's `{placeholder}`, and its own names and field filters are kept.
 List<ViewDef> renameStorage(List<ViewDef> views, String from, String to) {
   final f = paths.tryParsePath(from);
   final newKey = to.split('.').last;

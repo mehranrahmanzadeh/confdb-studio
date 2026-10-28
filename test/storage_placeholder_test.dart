@@ -40,19 +40,25 @@ void main() {
         .withKeys(const StorageNode(key: 'keys', kind: StorageKind.string, pattern: _pattern));
     root = replaceAt(root, 'actuators', map);
     root = root
-        .insert('actuators.{key}.mode', const StorageNode(key: 'mode', kind: StorageKind.string, choices: ['manual', 'auto']))
-        .insert('actuators.{key}.manual-speed', const StorageNode(key: 'manual-speed', kind: StorageKind.number, min: 0.1))
-        .insert('actuators.{key}.auto-max-speed', const StorageNode(key: 'auto-max-speed', kind: StorageKind.number, min: 0.1));
+        .insert('actuators.{placeholder}.mode', const StorageNode(key: 'mode', kind: StorageKind.string, choices: ['manual', 'auto']))
+        .insert('actuators.{placeholder}.manual-speed', const StorageNode(key: 'manual-speed', kind: StorageKind.number, min: 0.1))
+        .insert('actuators.{placeholder}.auto-max-speed', const StorageNode(key: 'auto-max-speed', kind: StorageKind.number, min: 0.1));
 
     expect(_actuators(root), _expected);
     expect(
       [for (final (_, p, _) in root.walk()) p],
-      ['actuators', 'actuators.{key}', 'actuators.{key}.mode', 'actuators.{key}.manual-speed', 'actuators.{key}.auto-max-speed'],
+      [
+        'actuators',
+        'actuators.{placeholder}',
+        'actuators.{placeholder}.mode',
+        'actuators.{placeholder}.manual-speed',
+        'actuators.{placeholder}.auto-max-speed',
+      ],
     );
     // Decoding gives the same tree back, and the rule from the example covers it.
     expect(_actuators(decodeStorage(jsonDecode(jsonEncode(encodeStorage(root)))).storage), _expected);
     expect(resolveStoragePath(root, 'actuators.{act}[.mode={mode}].manual-speed')?.min, 0.1);
-    expect(ruleCovers('actuators.{act}[.mode={mode}].mode', 'actuators.{key}.mode'), isTrue);
+    expect(ruleCovers('actuators.{act}[.mode={mode}].mode', 'actuators.{placeholder}.mode'), isTrue);
 
     // Renaming a key under the placeholder follows into rules, keeping their names and filters.
     final views = renameStorage(
@@ -62,13 +68,13 @@ void main() {
           rules: [ViewRule(request: 'actuators.{act}.mode', storage: 'actuators.{act}[.mode={mode}].mode', access: RuleAccess.read)],
         ),
       ],
-      'actuators.{key}.mode',
-      'actuators.{key}.state',
+      'actuators.{placeholder}.mode',
+      'actuators.{placeholder}.state',
     );
     expect(views.single.rules.single.storage, 'actuators.{act}[.mode={mode}].state');
 
     // Deleting the placeholder leaves an empty map, without keys.
-    final emptied = removeAt(root, 'actuators.{key}').lookup('actuators')!;
+    final emptied = removeAt(root, 'actuators.{placeholder}').lookup('actuators')!;
     expect(emptied.hasPlaceholder, isFalse);
     expect(emptied.keys, isNull);
   });
@@ -122,7 +128,7 @@ void main() {
     expect(find.text('<placeholder>'), findsOneWidget);
     expect(find.textContaining('keys match $_pattern'), findsOneWidget);
 
-    await menu('actuators.{key}', 'Add child');
+    await menu('actuators.{placeholder}', 'Add child');
     await tester.enterText(find.widgetWithText(TextField, 'Key'), 'manual-speed');
     await tester.tap(find.widgetWithText(TextField, 'Type'));
     await tester.pumpAndSettle();

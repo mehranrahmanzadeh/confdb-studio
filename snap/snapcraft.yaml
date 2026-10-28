@@ -1,6 +1,6 @@
 name: confdb-studio
 title: Confdb Studio
-version: "0.1.0"
+version: "0.1.1"
 summary: GUI for creating, editing and signing confdb schemas
 description: |
   A graphical user interface to create, edit and sign confdb schema assertions.

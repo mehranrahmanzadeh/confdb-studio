@@ -9,7 +9,7 @@ import '../../widgets/chips.dart';
 import '../../widgets/code_text.dart';
 import '../../widgets/common.dart';
 
-/// [path] for display: its internal `{key}` placeholder segment reads as
+/// [path] for display: its internal `{placeholder}` segment reads as
 /// `<placeholder>`.
 String _displayPath(String path) => path.replaceAll(StorageNode.placeholderKey, '<placeholder>');
 
