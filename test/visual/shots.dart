@@ -169,6 +169,7 @@ final shots = <Shot>[
     'editor-fixed',
     const SchemaEditorRoute(networkId),
     act: (t) async {
+      await t.ensureVisible(find.textContaining('Add wifi.signal'));
       await t.tap(find.textContaining('Add wifi.signal'));
     },
   ),
@@ -188,13 +189,14 @@ final shots = <Shot>[
     'sign',
     const SchemaEditorRoute(networkId),
     act: (t) async {
+      await t.ensureVisible(find.textContaining('Add wifi.signal'));
       await t.tap(find.textContaining('Add wifi.signal'));
       await t.pump(const Duration(milliseconds: 500));
-      await t.tap(find.text('Next'));
+      await t.tap(find.text('Preview assertion'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
-      await t.tap(find.text('Next'));
+      await t.tap(find.text('Choose signing key'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
@@ -268,13 +270,14 @@ final shots = <Shot>[
     const SchemaEditorRoute(networkId),
     scenario: const FakeScenario(latency: Duration.zero, noKeys: true, storeSignedOut: true),
     act: (t) async {
+      await t.ensureVisible(find.textContaining('Add wifi.signal'));
       await t.tap(find.textContaining('Add wifi.signal'));
       await t.pump(const Duration(milliseconds: 500));
-      await t.tap(find.text('Next'));
+      await t.tap(find.text('Preview assertion'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
-      await t.tap(find.text('Next'));
+      await t.tap(find.text('Choose signing key'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
@@ -285,13 +288,14 @@ final shots = <Shot>[
     const SchemaEditorRoute(networkId),
     scenario: const FakeScenario(latency: Duration(milliseconds: 200)),
     act: (t) async {
+      await t.ensureVisible(find.textContaining('Add wifi.signal'));
       await t.tap(find.textContaining('Add wifi.signal'));
       await t.pump(const Duration(milliseconds: 500));
-      await t.tap(find.text('Next'));
+      await t.tap(find.text('Preview assertion'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
-      await t.tap(find.text('Next'));
+      await t.tap(find.text('Choose signing key'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
@@ -309,13 +313,14 @@ final shots = <Shot>[
     'overview-rev5',
     const SchemaEditorRoute(networkId),
     act: (t) async {
+      await t.ensureVisible(find.textContaining('Add wifi.signal'));
       await t.tap(find.textContaining('Add wifi.signal'));
       await t.pump(const Duration(milliseconds: 500));
-      await t.tap(find.text('Next'));
+      await t.tap(find.text('Preview assertion'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
-      await t.tap(find.text('Next'));
+      await t.tap(find.text('Choose signing key'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
@@ -422,13 +427,14 @@ final shots = <Shot>[
     const SchemaEditorRoute(networkId),
     scenario: const FakeScenario(latency: Duration.zero, storeSignedOut: true),
     act: (t) async {
+      await t.ensureVisible(find.textContaining('Add wifi.signal'));
       await t.tap(find.textContaining('Add wifi.signal'));
       await t.pump(const Duration(milliseconds: 500));
-      await t.tap(find.text('Next'));
+      await t.tap(find.text('Preview assertion'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }
-      await t.tap(find.text('Next'));
+      await t.tap(find.text('Choose signing key'));
       for (var i = 0; i < 10; i++) {
         await t.pump(const Duration(milliseconds: 50));
       }

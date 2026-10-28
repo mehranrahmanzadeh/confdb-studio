@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/models.dart';
 import '../../domain/analysis.dart';
@@ -21,6 +22,8 @@ class RulesTable extends StatefulWidget {
     required this.usage,
     required this.issues,
     required this.focusRule,
+    required this.selectedStoragePath,
+    required this.onStoragePathSelected,
     required this.onChanged,
     required this.onQuickFix,
   });
@@ -34,6 +37,8 @@ class RulesTable extends StatefulWidget {
   /// Lint issues of this view.
   final List<LintIssue> issues;
   final String? focusRule;
+  final String? selectedStoragePath;
+  final ValueChanged<String> onStoragePathSelected;
   final ValueChanged<List<ViewRule>> onChanged;
   final void Function(String path, StorageNode leaf) onQuickFix;
 
@@ -129,6 +134,35 @@ class _RulesTableState extends State<RulesTable> {
       if (j != i) rules[j],
   ]);
 
+  int? get _focusedRuleIndex {
+    for (var i = 0; i < rules.length; i++) {
+      if (_reqFocus[i].hasFocus || _storeFocus[i].hasFocus) return i;
+    }
+    return null;
+  }
+
+  void _deleteFocusedRule() {
+    final index = _focusedRuleIndex;
+    if (index == null) return;
+    _delete(index);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _reqFocus.isNotEmpty) _reqFocus[index.clamp(0, _reqFocus.length - 1)].requestFocus();
+    });
+  }
+
+  void _moveFocusedRule(int offset) {
+    final index = _focusedRuleIndex;
+    if (index == null || rules.length < 2) return;
+    final target = (index + offset).clamp(0, rules.length - 1);
+    if (target == index) return;
+    _reorder(index, target);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && target < _reqFocus.length) _reqFocus[target].requestFocus();
+      });
+    });
+  }
+
   void _add() {
     widget.onChanged([...rules, const ViewRule(request: '', storage: '', access: RuleAccess.read)]);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -155,67 +189,77 @@ class _RulesTableState extends State<RulesTable> {
       ],
     );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Semantics(
-          label: 'Rules of ${widget.view.name}',
-          container: true,
-          child: SectionCard(
-            radius: 8,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Container(
-                  constraints: const BoxConstraints(minHeight: 44),
-                  padding: const EdgeInsets.fromLTRB(0, 0, 4, 0),
-                  alignment: Alignment.centerLeft,
-                  child: Row(
-                    children: [
-                      const SizedBox(width: 24),
-                      Expanded(
-                        child: cells(
-                          Text('Request path', style: head),
-                          Text('Storage path', style: head),
-                          Text('Fields', style: head),
-                          Text('Access', style: head),
-                          Semantics(label: 'Actions', child: const SizedBox.shrink()),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (rules.isEmpty)
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.backspace, control: true): _deleteFocusedRule,
+        const SingleActivator(LogicalKeyboardKey.arrowUp, alt: true): () => _moveFocusedRule(-1),
+        const SingleActivator(LogicalKeyboardKey.arrowDown, alt: true): () => _moveFocusedRule(1),
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Semantics(
+            label: 'Rules of ${widget.view.name}',
+            container: true,
+            child: SectionCard(
+              radius: 8,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                   Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      border: Border(top: BorderSide(color: c.outlineVariant)),
+                    constraints: const BoxConstraints(minHeight: 44),
+                    padding: const EdgeInsets.fromLTRB(0, 0, 4, 0),
+                    alignment: Alignment.centerLeft,
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 24),
+                        Expanded(
+                          child: cells(
+                            Text('Request path', style: head),
+                            Text('Storage path', style: head),
+                            Text('Fields', style: head),
+                            Text('Access', style: head),
+                            Semantics(label: 'Actions', child: const SizedBox.shrink()),
+                          ),
+                        ),
+                      ],
                     ),
-                    child: Text(
-                      'No rules yet. Add one to expose a storage path through this view.',
-                      style: context.text.bodyMedium?.copyWith(color: c.onSurfaceVariant),
-                    ),
-                  )
-                else
-                  ReorderableListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    buildDefaultDragHandles: false,
-                    proxyDecorator: (child, index, animation) => Material(color: c.surfaceContainerHigh, elevation: 4, child: child),
-                    itemCount: rules.length,
-                    onReorderItem: _reorder,
-                    itemBuilder: (context, i) => _row(context, i, cells, key: ValueKey(i)),
                   ),
-              ],
+                  if (rules.isEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        border: Border(top: BorderSide(color: c.outlineVariant)),
+                      ),
+                      child: Text(
+                        'No rules yet. Add one to expose a storage path through this view.',
+                        style: context.text.bodyMedium?.copyWith(color: c.onSurfaceVariant),
+                      ),
+                    )
+                  else
+                    ReorderableListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      buildDefaultDragHandles: false,
+                      proxyDecorator: (child, index, animation) => Material(color: c.surfaceContainerHigh, elevation: 4, child: child),
+                      itemCount: rules.length,
+                      onReorderItem: _reorder,
+                      itemBuilder: (context, i) => _row(context, i, cells, key: ValueKey(i)),
+                    ),
+                ],
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TertiaryButton(label: 'Add rule', icon: AppIcons.add, onPressed: _add),
-        ),
-      ],
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Tooltip(
+              message: 'Add rule · Ctrl+Shift+R',
+              child: TertiaryButton(label: 'Add rule', icon: AppIcons.add, onPressed: _add),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -308,7 +352,11 @@ class _RulesTableState extends State<RulesTable> {
                     ).copyWith(
                       suffixIcon: missing != null || (pathIssue?.isError ?? false) ? Icon(AppIcons.error, color: c.error, size: 20) : null,
                     ),
-                onChanged: (v) => _set(i, r.copyWith(storage: v.trim())),
+                onChanged: (v) {
+                  _set(i, r.copyWith(storage: v.trim()));
+                  widget.onStoragePathSelected(v.trim());
+                },
+                onSelectedPath: widget.onStoragePathSelected,
               ),
             ),
             // Field filters only make sense once the path resolves to a map.
@@ -421,13 +469,16 @@ class _RulesTableState extends State<RulesTable> {
     );
 
     final highlight = widget.focusRule == r.request && missing == null;
+    final storageSelected = widget.selectedStoragePath != null && ruleExposes(r, widget.selectedStoragePath!);
     return Container(
       key: key,
       padding: const EdgeInsets.fromLTRB(0, 8, 4, 8),
       decoration: BoxDecoration(
         color: missing != null
             ? Color.alphaBlend(c.errorContainer.withValues(alpha: 0.35), c.surfaceContainerLowest)
-            : (highlight ? Color.alphaBlend(c.secondaryContainer.withValues(alpha: 0.3), c.surfaceContainerLowest) : null),
+            : (highlight || storageSelected
+                  ? Color.alphaBlend(c.secondaryContainer.withValues(alpha: 0.3), c.surfaceContainerLowest)
+                  : null),
         border: Border(top: BorderSide(color: c.outlineVariant)),
       ),
       child: Row(
@@ -452,7 +503,11 @@ class _RulesTableState extends State<RulesTable> {
               storage,
               fields,
               access,
-              IconButton(tooltip: 'Delete rule ${r.request}', onPressed: () => _delete(i), icon: const Icon(AppIcons.delete, size: 20)),
+              IconButton(
+                tooltip: 'Delete rule ${r.request} · Ctrl+Backspace',
+                onPressed: () => _delete(i),
+                icon: const Icon(AppIcons.delete, size: 20),
+              ),
             ),
           ),
         ],
@@ -579,6 +634,7 @@ class _StoragePathField extends StatelessWidget {
     required this.usage,
     required this.decoration,
     required this.onChanged,
+    required this.onSelectedPath,
   });
   final TextEditingController controller;
   final FocusNode focusNode;
@@ -586,6 +642,7 @@ class _StoragePathField extends StatelessWidget {
   final Map<String, int> usage;
   final InputDecoration decoration;
   final ValueChanged<String> onChanged;
+  final ValueChanged<String> onSelectedPath;
 
   @override
   Widget build(BuildContext context) {
@@ -604,15 +661,28 @@ class _StoragePathField extends StatelessWidget {
           optionsBuilder: (value) {
             final q = value.text.trim();
             if (q.isEmpty) return leaves;
-            return leaves.where((l) => l.$1.contains(q) && l.$1 != q);
+            final query = q.toLowerCase();
+            final matches = leaves.where((l) => l.$1.toLowerCase().contains(query) && l.$1 != q).toList();
+            matches.sort((a, b) {
+              final aPrefix = a.$1.toLowerCase().startsWith(query);
+              final bPrefix = b.$1.toLowerCase().startsWith(query);
+              return aPrefix == bPrefix ? a.$1.compareTo(b.$1) : (aPrefix ? -1 : 1);
+            });
+            return matches;
           },
-          onSelected: (o) => onChanged(o.$1),
+          onSelected: (o) {
+            onChanged(o.$1);
+            onSelectedPath(o.$1);
+          },
           fieldViewBuilder: (context, ctrl, focus, onSubmit) => TextField(
             controller: ctrl,
             focusNode: focus,
             style: context.text.bodyMedium?.mono,
             decoration: decoration,
             onChanged: onChanged,
+            onTap: () {
+              if (ctrl.text.trim().isNotEmpty) onSelectedPath(ctrl.text.trim());
+            },
             onSubmitted: (_) => onSubmit(),
           ),
           optionsViewBuilder: (context, onSelected, options) {
@@ -659,11 +729,14 @@ class _StoragePathField extends StatelessWidget {
                                     ),
                                     const SizedBox(width: 8),
                                     TypeChip(node.typeLabel),
+                                    if (node.constraintSummary case final summary?)
+                                      Text(summary, style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
                                     if (node.ephemeral) ...[
                                       const SizedBox(width: 8),
                                       Icon(AppIcons.bolt, size: 14, color: c.onSurfaceVariant),
                                       Text('Ephemeral', style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
                                     ],
+                                    if (node.secret) Text('Secret', style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
                                     const SizedBox(width: 8),
                                     Flexible(
                                       child: Text(

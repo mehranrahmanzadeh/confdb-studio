@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/confdb_repository.dart';
 import '../../data/models.dart';
@@ -115,13 +116,20 @@ class _Editor extends StatefulWidget {
 }
 
 class _EditorState extends State<_Editor> {
+  late final ConfdbRepository _repo;
+  final _storageSearchController = TextEditingController();
+  final _storageSearchFocus = FocusNode();
   late ConfdbSchema _draft = widget.initial;
   late String? _view = widget.route.view ?? widget.initial.views.firstOrNull?.name;
   late String? _focusPath = _editRoute?.focusStoragePath;
+  late String? _selectedPath = _focusPath;
   String? _focusRule;
   bool _json = false;
   bool _viewsCollapsed = false;
+  bool _compactStorage = false;
   Timer? _save;
+  _DraftSaveState _saveState = _DraftSaveState.saved;
+  int _lintIndex = -1;
 
   /// Chosen on the signing-key step; carried along so it survives going
   /// back and forth before the sign dialog opens.
@@ -153,6 +161,7 @@ class _EditorState extends State<_Editor> {
   @override
   void initState() {
     super.initState();
+    _repo = context.repo;
     if (widget.route.view == null && _view != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) context.app.replace(SchemaEditorRoute(id, view: _view, focusStoragePath: _focusPath));
@@ -170,29 +179,49 @@ class _EditorState extends State<_Editor> {
     if (r.view != null && r.view != _view) _view = r.view;
     if (r is SchemaEditorRoute &&
         old.route is SchemaEditorRoute &&
+        r.focusStoragePath != null &&
         r.focusStoragePath != (old.route as SchemaEditorRoute).focusStoragePath) {
       _focusPath = r.focusStoragePath;
+      _selectedPath = r.focusStoragePath;
     }
   }
 
   @override
   void dispose() {
+    _storageSearchController.dispose();
+    _storageSearchFocus.dispose();
     if (_save?.isActive ?? false) {
       _save!.cancel();
-      context.repo.saveDraft(_draft);
+      unawaited(_repo.saveDraft(_draft));
     }
     super.dispose();
   }
 
   void _update(ConfdbSchema next) {
     setState(() => _draft = next);
+    _saveState = _DraftSaveState.unsaved;
     _save?.cancel();
-    _save = Timer(const Duration(milliseconds: 400), () => context.repo.saveDraft(_draft));
+    _save = Timer(const Duration(milliseconds: 400), _persistDraft);
   }
 
-  Future<void> _flush() async {
+  Future<bool> _persistDraft() async {
+    if (mounted) setState(() => _saveState = _DraftSaveState.saving);
+    try {
+      await _repo.saveDraft(_draft);
+      if (mounted) setState(() => _saveState = _DraftSaveState.saved);
+      return true;
+    } catch (e) {
+      if (mounted) {
+        setState(() => _saveState = _DraftSaveState.failed);
+        showToast(ScaffoldMessenger.of(context), CodeText('Couldn’t save draft: $e'), kind: MessageKind.error);
+      }
+      return false;
+    }
+  }
+
+  Future<bool> _flush() async {
     _save?.cancel();
-    await context.repo.saveDraft(_draft);
+    return _persistDraft();
   }
 
   /// After signing, the signed revision is acknowledged and its draft
@@ -207,12 +236,70 @@ class _EditorState extends State<_Editor> {
     setState(() {
       _view = name;
       _focusRule = rule;
+      final selectedRule = _draft.view(name)?.rules.where((r) => r.request == rule).firstOrNull;
+      if (selectedRule != null) {
+        _focusPath = selectedRule.storage;
+        _selectedPath = selectedRule.storage;
+      }
     });
-    context.app.replace(SchemaEditorRoute(id, view: name));
+    context.app.replace(SchemaEditorRoute(id, view: name, focusStoragePath: _focusPath));
+  }
+
+  void _selectStoragePath(String path) {
+    final matches = [
+      for (final v in _draft.views)
+        for (final r in v.rules)
+          if (ruleExposes(r, path)) (v, r),
+    ];
+    final match = matches.where((entry) => entry.$1.name == _view).firstOrNull ?? matches.firstOrNull;
+    setState(() {
+      _focusPath = path;
+      _selectedPath = path;
+      _focusRule = match?.$2.request;
+      if (match != null) {
+        _view = match.$1.name;
+        _focusRule = match.$2.request;
+      }
+    });
+    if (match != null) context.app.replace(SchemaEditorRoute(id, view: match.$1.name, focusStoragePath: path));
   }
 
   void _setRules(List<ViewRule> rules) {
     _update(_draft.copyWith(views: [for (final v in _draft.views) v.name == _view ? v.copyWith(rules: rules) : v]));
+  }
+
+  void _addRuleFromShortcut() {
+    final selected = _view == null ? null : _draft.view(_view!);
+    if (selected == null) return;
+    _setRules([...selected.rules, const ViewRule(request: '', storage: '', access: RuleAccess.read)]);
+  }
+
+  void _addStorageFromShortcut() {
+    String? parent = _selectedPath;
+    while (parent != null && !(_draft.storage.lookup(parent)?.isMap ?? false)) {
+      final separator = parent.lastIndexOf('.');
+      parent = separator < 0 ? null : parent.substring(0, separator);
+    }
+    _addNode(parent);
+  }
+
+  void _focusStorageSearch() {
+    setState(() {
+      _compactStorage = true;
+      _json = false;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _storageSearchFocus.requestFocus();
+    });
+  }
+
+  void _nextLintIssue() {
+    final issues = lintSchema(_draft);
+    if (issues.isEmpty) return;
+    _lintIndex = (_lintIndex + 1) % issues.length;
+    final issue = issues[_lintIndex];
+    if (issue.view != null) _selectView(issue.view!, rule: issue.request);
+    if (issue.storagePath != null) _showInStorage(issue.storagePath!);
   }
 
   void _setViewSummary(ViewDef v, String summary) {
@@ -290,14 +377,20 @@ class _EditorState extends State<_Editor> {
 
   void _quickFix(String path, StorageNode leaf) {
     _update(_draft.copyWith(storage: _draft.storage.insert(path, leaf), addedInDraft: {..._draft.addedInDraft, path}));
-    setState(() => _focusPath = path);
+    setState(() {
+      _focusPath = path;
+      _selectedPath = path;
+    });
   }
 
   Future<void> _addNode(String? parent) async {
     final edit = await showStorageNodeDialog(context, draft: _draft, parent: parent, snapdVersion: context.app.status?.snapdVersion);
     if (edit == null || !mounted) return;
     _update(_draft.copyWith(storage: _draft.storage.insert(edit.path, edit.node), addedInDraft: {..._draft.addedInDraft, edit.path}));
-    setState(() => _focusPath = edit.path);
+    setState(() {
+      _focusPath = edit.path;
+      _selectedPath = edit.path;
+    });
   }
 
   /// Gives the empty map at [mapPath] a placeholder: any key, typed values.
@@ -310,7 +403,10 @@ class _EditorState extends State<_Editor> {
     );
     if (edit == null || !mounted) return;
     _setPlaceholder(mapPath, edit);
-    setState(() => _focusPath = edit.path);
+    setState(() {
+      _focusPath = edit.path;
+      _selectedPath = edit.path;
+    });
   }
 
   void _setPlaceholder(String mapPath, StorageEdit edit) {
@@ -333,7 +429,10 @@ class _EditorState extends State<_Editor> {
     if (edit == null || !mounted) return;
     if (edit.placeholder) {
       _setPlaceholder(edit.parent!, edit);
-      setState(() => _focusPath = edit.path);
+      setState(() {
+        _focusPath = edit.path;
+        _selectedPath = edit.path;
+      });
       return;
     }
     var views = _draft.views;
@@ -350,7 +449,10 @@ class _EditorState extends State<_Editor> {
       added = renamePaths(added, path, edit.path);
     }
     _update(_draft.copyWith(storage: replaceAt(_draft.storage, path, edit.node), views: views, addedInDraft: added));
-    setState(() => _focusPath = edit.path);
+    setState(() {
+      _focusPath = edit.path;
+      _selectedPath = edit.path;
+    });
   }
 
   Future<void> _deleteNode(String path) async {
@@ -422,20 +524,20 @@ class _EditorState extends State<_Editor> {
 
   Future<void> _openPreview() async {
     final app = context.app;
-    await _flush();
+    if (!await _flush()) return;
     if (_view != null) app.go(PreviewRoute(id, view: _view!));
   }
 
   Future<void> _openSigningKey() async {
     final app = context.app;
-    await _flush();
+    if (!await _flush()) return;
     if (_view != null) app.go(SigningKeyRoute(id, view: _view!));
   }
 
   /// Leaves the editor for the overview; the draft is kept.
   Future<void> _exit() async {
     final app = context.app;
-    await _flush();
+    if (!await _flush()) return;
     app.go(const OverviewRoute());
   }
 
@@ -448,6 +550,7 @@ class _EditorState extends State<_Editor> {
 
   void _showInStorage(String path) => setState(() {
     _focusPath = path;
+    _selectedPath = path;
     _json = false;
   });
 
@@ -507,6 +610,11 @@ class _EditorState extends State<_Editor> {
         view: view,
         issues: issues,
         focusRule: _focusRule,
+        selectedStoragePath: _selectedPath,
+        onStoragePathSelected: (path) => setState(() {
+          _focusPath = path;
+          _selectedPath = path;
+        }),
         onRules: _setRules,
         onQuickFix: _quickFix,
         onGoToRule: (v, r) => _selectView(v, rule: r),
@@ -527,6 +635,10 @@ class _EditorState extends State<_Editor> {
         draft: _draft,
         issues: issues,
         focusPath: _focusPath,
+        selectedPath: _selectedPath,
+        onSelectPath: _selectStoragePath,
+        searchController: _storageSearchController,
+        searchFocusNode: _storageSearchFocus,
         json: _json,
         onJson: (v) => setState(() => _json = v),
         onStorage: (root, aliases) => _update(_draft.copyWith(storage: root, aliases: aliases)),
@@ -563,79 +675,106 @@ class _EditorState extends State<_Editor> {
     };
     final canSign = _signingKey != null && _signingKeyRegistered != false;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        _Header(
-          draft: _draft,
-          base: widget.base,
-          issues: issues,
-          step: step,
-          onSummary: (v) => _update(_draft.copyWith(summary: v)),
-          onNext: onNext,
-          onBack: onBack,
-          onExit: _exit,
-          canSign: canSign,
-          onSign: () async {
-            final key = _signingKey;
-            if (key == null) return;
-            await _flush();
-            if (context.mounted) {
-              openSignDialog(context, _draft, widget.base, key, keyRegistered: _signingKeyRegistered, view: _view, onSigned: _onSigned);
-            }
-          },
-        ),
-        Expanded(
-          child: signStep != null
-              ? SigningKeyPanel(
-                  key: ValueKey('signingKey:${signStep.view}'),
-                  draft: _draft,
-                  selected: _signingKey,
-                  onSelectionChanged: (key, registered) => setState(() {
-                    _signingKey = key;
-                    _signingKeyRegistered = registered;
-                  }),
-                )
-              : play != null
-              ? PlaygroundPanel(
-                  key: ValueKey('playground:${play.view}'),
-                  draft: _draft,
-                  snaps: widget.snaps,
-                  route: play,
-                  onView: (v) {
-                    _view = v;
-                    context.app.replace(PlaygroundRoute(id, view: v));
-                  },
-                )
-              : previewStep != null
-              ? PreviewPanel(key: ValueKey('preview:${previewStep.view}'), draft: _draft)
-              : compact
-              ? SingleChildScrollView(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [center, storage]),
-                )
-              : LayoutBuilder(
-                  builder: (context, constraints) => _resizableRow(
-                    constraints.maxWidth,
-                    tourShowcase(
-                      context,
-                      key: TourKeys.editorViews,
-                      title: 'Views',
-                      description: 'Views are the endpoints snaps read and write confdb through; pick one to edit its rules.',
-                      child: ViewsPane(
-                        draft: _draft,
-                        selected: _view,
-                        issues: issues,
-                        onSelect: _selectView,
-                        onAdd: _addView,
-                        onCollapse: () => setState(() => _viewsCollapsed = true),
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyS, control: true): () => _flush(),
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true): _focusStorageSearch,
+        const SingleActivator(LogicalKeyboardKey.keyR, control: true, shift: true): _addRuleFromShortcut,
+        const SingleActivator(LogicalKeyboardKey.keyN, control: true, shift: true): _addStorageFromShortcut,
+        const SingleActivator(LogicalKeyboardKey.keyL, control: true, alt: true): _nextLintIssue,
+        const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
+          if (step == _EditorStep.schema) _openPreview();
+        },
+      },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _Header(
+            draft: _draft,
+            base: widget.base,
+            issues: issues,
+            step: step,
+            saveState: _saveState,
+            onSummary: (v) => _update(_draft.copyWith(summary: v)),
+            onNext: onNext,
+            onBack: onBack,
+            onExit: _exit,
+            canSign: canSign,
+            onSign: () async {
+              final key = _signingKey;
+              if (key == null) return;
+              if (!await _flush()) return;
+              if (context.mounted) {
+                openSignDialog(context, _draft, widget.base, key, keyRegistered: _signingKeyRegistered, view: _view, onSigned: _onSigned);
+              }
+            },
+          ),
+          Expanded(
+            child: signStep != null
+                ? SigningKeyPanel(
+                    key: ValueKey('signingKey:${signStep.view}'),
+                    draft: _draft,
+                    selected: _signingKey,
+                    onSelectionChanged: (key, registered) => setState(() {
+                      _signingKey = key;
+                      _signingKeyRegistered = registered;
+                    }),
+                  )
+                : play != null
+                ? PlaygroundPanel(
+                    key: ValueKey('playground:${play.view}'),
+                    draft: _draft,
+                    snaps: widget.snaps,
+                    route: play,
+                    onView: (v) {
+                      _view = v;
+                      context.app.replace(PlaygroundRoute(id, view: v));
+                    },
+                  )
+                : previewStep != null
+                ? PreviewPanel(key: ValueKey('preview:${previewStep.view}'), draft: _draft, base: widget.base)
+                : compact
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: SegmentedButton<bool>(
+                          segments: const [
+                            ButtonSegment(value: false, label: Text('Views & rules')),
+                            ButtonSegment(value: true, label: Text('Storage')),
+                          ],
+                          selected: {_compactStorage},
+                          onSelectionChanged: (value) => setState(() => _compactStorage = value.first),
+                        ),
                       ),
+                      Expanded(child: SingleChildScrollView(child: _compactStorage ? storage : center)),
+                    ],
+                  )
+                : LayoutBuilder(
+                    builder: (context, constraints) => _resizableRow(
+                      constraints.maxWidth,
+                      tourShowcase(
+                        context,
+                        key: TourKeys.editorViews,
+                        title: 'Views',
+                        description: 'Views are the endpoints snaps read and write confdb through; pick one to edit its rules.',
+                        child: ViewsPane(
+                          draft: _draft,
+                          selected: _view,
+                          issues: issues,
+                          onSelect: _selectView,
+                          onAdd: _addView,
+                          onCollapse: () => setState(() => _viewsCollapsed = true),
+                        ),
+                      ),
+                      center,
+                      storage,
                     ),
-                    center,
-                    storage,
                   ),
-                ),
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -686,12 +825,15 @@ class _CollapsedViewsStrip extends StatelessWidget {
 /// shows as done once Playground (reached after signing) is current.
 enum _EditorStep { schema, preview, signingKey, playground }
 
+enum _DraftSaveState { saved, unsaved, saving, failed }
+
 class _Header extends StatelessWidget {
   const _Header({
     required this.draft,
     required this.base,
     required this.issues,
     required this.step,
+    required this.saveState,
     required this.onSummary,
     required this.onNext,
     required this.onBack,
@@ -703,6 +845,7 @@ class _Header extends StatelessWidget {
   final ConfdbSchema? base;
   final List<LintIssue> issues;
   final _EditorStep step;
+  final _DraftSaveState saveState;
   final ValueChanged<String> onSummary;
 
   /// Schema → Preview, and Preview → Signing key.
@@ -769,6 +912,7 @@ class _Header extends StatelessWidget {
             runSpacing: 12,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
+              _SaveIndicator(state: saveState),
               switch (step) {
                 _EditorStep.schema => Tooltip(
                   message: 'Back to the overview. The draft is kept.',
@@ -785,16 +929,16 @@ class _Header extends StatelessWidget {
                 _EditorStep.schema => tourShowcase(
                   context,
                   key: TourKeys.editorNext,
-                  title: 'Preview & sign',
-                  description: 'Once the schema is ready, preview the assertion and sign it from here.',
+                  title: 'Review assertion',
+                  description: 'Review the exact assertion and its changes before choosing a signing key.',
                   child: Tooltip(
                     message: errors > 0 ? 'Fix the lint errors first' : 'Preview the full assertion, then sign',
-                    child: PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
+                    child: PrimaryButton(label: 'Preview assertion', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
                   ),
                 ),
                 _EditorStep.preview => Tooltip(
                   message: errors > 0 ? 'Fix the lint errors first' : 'Pick the key to sign with',
-                  child: PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
+                  child: PrimaryButton(label: 'Choose signing key', icon: AppIcons.next, onPressed: errors > 0 ? null : onNext),
                 ),
                 _EditorStep.signingKey => Tooltip(
                   message: canSign ? 'Open the sign and acknowledge dialog' : 'Select a registered key first',
@@ -805,6 +949,41 @@ class _Header extends StatelessWidget {
               },
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SaveIndicator extends StatelessWidget {
+  const _SaveIndicator({required this.state});
+  final _DraftSaveState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final (label, icon, color) = switch (state) {
+      _DraftSaveState.saved => ('Saved', AppIcons.check, c.tertiary),
+      _DraftSaveState.unsaved => ('Unsaved changes', AppIcons.edit, c.onSurfaceVariant),
+      _DraftSaveState.saving => ('Saving…', AppIcons.bolt, c.onSurfaceVariant),
+      _DraftSaveState.failed => ('Save failed', AppIcons.error, c.error),
+    };
+    return Tooltip(
+      message: [
+        switch (state) {
+          _DraftSaveState.saved => 'Draft saved locally',
+          _DraftSaveState.unsaved => 'Changes will save automatically',
+          _DraftSaveState.saving => 'Saving draft locally',
+          _DraftSaveState.failed => 'Draft could not be saved; try Ctrl+S',
+        },
+        'Ctrl+S save · Ctrl+Shift+R add rule · Ctrl+Shift+N add storage path · Ctrl+Alt+L next issue · Alt+Up/Down reorder · Ctrl+Backspace delete rule',
+      ].join('\n'),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 16, color: color),
+          const SizedBox(width: 4),
+          Text(label, style: context.text.bodySmall?.copyWith(color: color)),
         ],
       ),
     );
@@ -1051,6 +1230,8 @@ class _Center extends StatelessWidget {
     required this.view,
     required this.issues,
     required this.focusRule,
+    required this.selectedStoragePath,
+    required this.onStoragePathSelected,
     required this.onRules,
     required this.onQuickFix,
     required this.onGoToRule,
@@ -1066,6 +1247,8 @@ class _Center extends StatelessWidget {
   final ViewDef? view;
   final List<LintIssue> issues;
   final String? focusRule;
+  final String? selectedStoragePath;
+  final ValueChanged<String> onStoragePathSelected;
   final ValueChanged<List<ViewRule>> onRules;
   final void Function(String path, StorageNode leaf) onQuickFix;
   final void Function(String view, String? rule) onGoToRule;
@@ -1147,6 +1330,8 @@ class _Center extends StatelessWidget {
             usage: storageUsage(draft),
             issues: issues.where((i) => i.view == v.name).toList(),
             focusRule: focusRule,
+            selectedStoragePath: selectedStoragePath,
+            onStoragePathSelected: onStoragePathSelected,
             onChanged: onRules,
             onQuickFix: onQuickFix,
           ),
@@ -1209,7 +1394,10 @@ class _LintPanel extends StatelessWidget {
         children: [
           Row(
             children: [
-              Semantics(header: true, child: Text('Lint', style: context.text.labelLarge)),
+              Tooltip(
+                message: 'Next issue · Ctrl+Alt+L',
+                child: Semantics(header: true, child: Text('Lint', style: context.text.labelLarge)),
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text('$summary · $note', style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),

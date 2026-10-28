@@ -19,6 +19,10 @@ class StoragePane extends StatelessWidget {
     required this.draft,
     required this.issues,
     required this.focusPath,
+    required this.selectedPath,
+    required this.onSelectPath,
+    required this.searchController,
+    required this.searchFocusNode,
     required this.json,
     required this.onJson,
     required this.onStorage,
@@ -35,6 +39,10 @@ class StoragePane extends StatelessWidget {
   final ConfdbSchema draft;
   final List<LintIssue> issues;
   final String? focusPath;
+  final String? selectedPath;
+  final ValueChanged<String> onSelectPath;
+  final TextEditingController searchController;
+  final FocusNode searchFocusNode;
   final bool json;
   final ValueChanged<bool> onJson;
   final void Function(StorageNode storage, Map<String, StorageNode> aliases) onStorage;
@@ -106,6 +114,10 @@ class StoragePane extends StatelessWidget {
                 draft: draft,
                 unexposed: unexposed,
                 focusPath: focusPath,
+                selectedPath: selectedPath,
+                onSelectPath: onSelectPath,
+                searchController: searchController,
+                searchFocusNode: searchFocusNode,
                 onAdd: onAdd,
                 onAddPlaceholder: onAddPlaceholder,
                 onEdit: onEdit,
@@ -215,6 +227,10 @@ class _Tree extends StatefulWidget {
     required this.draft,
     required this.unexposed,
     required this.focusPath,
+    required this.selectedPath,
+    required this.onSelectPath,
+    required this.searchController,
+    required this.searchFocusNode,
     required this.onAdd,
     required this.onAddPlaceholder,
     required this.onEdit,
@@ -223,6 +239,10 @@ class _Tree extends StatefulWidget {
   final ConfdbSchema draft;
   final Set<String> unexposed;
   final String? focusPath;
+  final String? selectedPath;
+  final ValueChanged<String> onSelectPath;
+  final TextEditingController searchController;
+  final FocusNode searchFocusNode;
   final ValueChanged<String?> onAdd;
 
   /// Gives an empty map a placeholder (any key).
@@ -241,12 +261,24 @@ bool _isDescendant(String path, String ancestor) =>
 
 class _TreeState extends State<_Tree> {
   final _collapsed = <String>{};
+  String _query = '';
+
+  @override
+  void didUpdateWidget(_Tree oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final focusPath = widget.focusPath;
+    if (focusPath != null && focusPath != oldWidget.focusPath) {
+      _collapsed.removeWhere((path) => _isDescendant(focusPath, path));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final draft = widget.draft;
     final unexposed = widget.unexposed;
     final focusPath = widget.focusPath;
+    final selectedPath = widget.selectedPath;
+    final onSelectPath = widget.onSelectPath;
     final onAdd = widget.onAdd;
     final onAddPlaceholder = widget.onAddPlaceholder;
     final onEdit = widget.onEdit;
@@ -255,10 +287,27 @@ class _TreeState extends State<_Tree> {
     final s = context.status;
     final usage = storageUsage(draft);
     final rows = <Widget>[];
-    for (final (depth, path, node) in draft.storage.walk()) {
-      if (_collapsed.any((p) => _isDescendant(path, p))) continue;
+    final allRows = draft.storage.walk().toList();
+    final matches = allRows.where((row) => row.$2.toLowerCase().contains(_query.toLowerCase())).toList();
+    final visiblePaths = <String>{};
+    for (final (_, path, _) in matches) {
+      var prefix = path;
+      visiblePaths.add(prefix);
+      while (true) {
+        final dot = prefix.lastIndexOf('.');
+        final bracket = prefix.lastIndexOf('[');
+        final boundary = dot > bracket ? dot : bracket;
+        if (boundary <= 0) break;
+        prefix = prefix.substring(0, boundary);
+        visiblePaths.add(prefix);
+      }
+    }
+    for (final (depth, path, node) in allRows) {
+      if (_query.isNotEmpty && !visiblePaths.contains(path)) continue;
+      if (_query.isEmpty && _collapsed.any((p) => _isDescendant(path, p))) continue;
       final warn = unexposed.contains(path);
       final focused = path == focusPath;
+      final selected = path == selectedPath;
       final isNew = draft.addedInDraft.contains(path);
       int used;
       if (node.isMap) {
@@ -331,11 +380,16 @@ class _TreeState extends State<_Tree> {
                 borderRadius: BorderRadius.circular(8),
                 onTap: arrayElement
                     ? null
-                    : expandable
-                    ? () => setState(() {
-                        if (!_collapsed.add(path)) _collapsed.remove(path);
-                      })
-                    : () => onEdit(path),
+                    : () {
+                        onSelectPath(path);
+                        if (expandable) {
+                          setState(() {
+                            if (!_collapsed.add(path)) _collapsed.remove(path);
+                          });
+                        } else {
+                          onEdit(path);
+                        }
+                      },
                 child: Semantics(
                   button: !arrayElement,
                   label: arrayElement
@@ -347,7 +401,7 @@ class _TreeState extends State<_Tree> {
                     padding: EdgeInsets.fromLTRB(8 + depth * 20.0, 6, 8, 6),
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
-                      color: focused
+                      color: selected || focused
                           ? Color.alphaBlend(c.secondaryContainer.withValues(alpha: 0.5), c.surfaceContainerLow)
                           : warn
                           ? Color.alphaBlend(s.warningContainer.withValues(alpha: 0.45), c.surfaceContainerLow)
@@ -424,7 +478,42 @@ class _TreeState extends State<_Tree> {
       );
       rows.add(const SizedBox(height: 2));
     }
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: rows);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: TextField(
+            controller: widget.searchController,
+            focusNode: widget.searchFocusNode,
+            onChanged: (value) => setState(() => _query = value.trim()),
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Search storage paths',
+              prefixIcon: const Icon(Icons.search, size: 18),
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Clear search',
+                      onPressed: () {
+                        widget.searchController.clear();
+                        setState(() => _query = '');
+                      },
+                      icon: const Icon(Icons.close, size: 16),
+                    ),
+              helperText: _query.isEmpty ? 'Ctrl+F to focus' : '${matches.length} matching ${matches.length == 1 ? 'path' : 'paths'}',
+            ),
+          ),
+        ),
+        if (rows.isEmpty && _query.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text('No storage paths match “$_query”.', style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
+          )
+        else
+          ...rows,
+      ],
+    );
   }
 }
 

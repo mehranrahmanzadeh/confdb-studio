@@ -437,6 +437,15 @@ void main() {
   });
 
   group('lint and diff', () {
+    test('a new schema preview reports its contents as additions', () {
+      final diff = diffSchemas(null, networkRev4);
+
+      expect(diff, isNotEmpty);
+      expect(diff.every((line) => line.added), isTrue);
+      expect(diff.any((line) => line.where == 'storage' && line.what.startsWith('wifi.ssid')), isTrue);
+      expect(diff.any((line) => line.where == 'wifi-admin'), isTrue);
+    });
+
     test('draft rev 5 has the wifi.signal error and the proxy.https warning', () {
       final issues = lintSchema(networkDraft);
       expect(issues.where((i) => i.isError).single.storagePath, 'wifi.signal');

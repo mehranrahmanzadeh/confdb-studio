@@ -25,22 +25,23 @@ void main() {
 
   Finder button(String label) => find.ancestor(of: find.text(label), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton));
 
-  testWidgets('Next leads from the editor to preview, then signing key, and signing lands on the playground', (tester) async {
+  testWidgets('review leads from the editor to preview, then signing key, and signing lands on the playground', (tester) async {
     await open(tester, const SchemaEditorRoute(networkId));
+    await tester.ensureVisible(find.textContaining('Add wifi.signal'));
     await tester.tap(find.textContaining('Add wifi.signal'));
     await tester.pump(const Duration(milliseconds: 500));
-    expect(button('Sign & Acknowledge'), findsNothing, reason: 'the editor offers Next');
+    expect(button('Sign & Acknowledge'), findsNothing, reason: 'the editor offers an assertion review');
     expect(find.bySemanticsLabel(RegExp('step 1 of 5, Schema')), findsOneWidget);
 
-    await tester.tap(find.text('Next'));
+    await tester.tap(find.text('Preview assertion'));
     await tester.pumpAndSettle();
     expect(find.byType(PreviewPanel), findsOneWidget);
-    expect(find.bySemanticsLabel('Schema summary'), findsOneWidget, reason: 'the header stays');
+    expect(find.textContaining('Local draft'), findsOneWidget, reason: 'the schema context stays visible');
     expect(find.bySemanticsLabel(RegExp('step 2 of 5, Preview')), findsOneWidget);
     expect(find.text('Sign & Acknowledge'), findsNothing);
     expect(find.textContaining('"wifi"'), findsOneWidget, reason: 'the storage schema shows');
 
-    await tester.tap(find.text('Next'));
+    await tester.tap(find.text('Choose signing key'));
     await tester.pumpAndSettle();
     expect(find.bySemanticsLabel(RegExp('step 3 of 5, Signing key')), findsOneWidget);
     expect(button('Sign & Acknowledge'), findsOneWidget);
@@ -72,13 +73,14 @@ void main() {
     await tester.pumpWidget(ConfdbStudioApp(repository: repo, initialRoute: const SchemaEditorRoute(networkId)));
     await tester.pumpAndSettle();
 
+    await tester.ensureVisible(find.textContaining('Add wifi.signal'));
     await tester.tap(find.textContaining('Add wifi.signal'));
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.text('New'), findsOneWidget, reason: 'the storage tree flags the field added in this draft');
 
-    await tester.tap(find.text('Next'));
+    await tester.tap(find.text('Preview assertion'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Next'));
+    await tester.tap(find.text('Choose signing key'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('acme-release'));
     await tester.pumpAndSettle();
@@ -121,15 +123,16 @@ void main() {
 
   testWidgets('Back returns to the editor with the draft intact', (tester) async {
     await open(tester, const SchemaEditorRoute(networkId));
+    await tester.ensureVisible(find.textContaining('Add wifi.signal'));
     await tester.tap(find.textContaining('Add wifi.signal'));
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.text('Next'));
+    await tester.tap(find.text('Preview assertion'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Back'));
     await tester.pumpAndSettle();
     expect(find.byType(PreviewPanel), findsNothing);
     expect(find.textContaining('Add wifi.signal'), findsNothing, reason: 'the quick fix is still applied');
-    expect(find.text('Next'), findsOneWidget);
+    expect(find.text('Preview assertion'), findsOneWidget);
   });
   testWidgets('Exit on the first step leaves for the overview and keeps the draft', (tester) async {
     tester.view.physicalSize = const Size(1440, 900);
@@ -142,6 +145,7 @@ void main() {
     }
 
     await openEditor();
+    await tester.ensureVisible(find.textContaining('Add wifi.signal'));
     await tester.tap(find.textContaining('Add wifi.signal'));
     await tester.pump(const Duration(milliseconds: 500));
     await tester.tap(find.text('Exit'));
@@ -153,9 +157,7 @@ void main() {
     await openEditor();
     expect(find.textContaining('Add wifi.signal'), findsNothing, reason: 'the draft kept the quick fix');
 
-    // On the playground step the header offers Back instead.
-    await tester.tap(find.text('Next'));
-    await tester.pumpAndSettle();
-    expect(find.text('Exit'), findsNothing);
+    expect(find.text('Test in playground'), findsNothing);
+    expect(find.text('Exit'), findsOneWidget);
   });
 }

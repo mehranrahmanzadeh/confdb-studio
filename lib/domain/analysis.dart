@@ -234,9 +234,25 @@ class SchemaDiffLine {
 /// What a draft changes compared to the revision it is based on.
 List<SchemaDiffLine> diffSchemas(ConfdbSchema? base, ConfdbSchema draft) {
   final lines = <SchemaDiffLine>[];
-  String rule(ViewRule r) => '${r.request} → ${r.storage}  ·  ${r.access.label}';
+  String rule(ViewRule r) =>
+      '${r.request} → ${r.storage}  ·  ${r.access.label}${r.content.isEmpty ? '' : ' · fields: ${_contentPaths(r.content).join(', ')}'}';
+  String node(StorageNode n) => [
+    n.typeLabel,
+    ?n.constraintSummary,
+    if (n.ephemeral) 'ephemeral',
+    if (n.secret) 'secret',
+    if (n.required.isNotEmpty) 'required: ${n.required.map((combo) => combo.join(' & ')).join(' or ')}',
+    if (n.keys != null) 'keys: ${describeLeaf(n.keys!)}',
+  ].join(', ');
+  void addPair(String where, String before, String after) {
+    if (before == after) return;
+    if (before.isNotEmpty) lines.add(SchemaDiffLine(added: false, where: where, what: before));
+    if (after.isNotEmpty) lines.add(SchemaDiffLine(added: true, where: where, what: after));
+  }
 
-  if (base != null && base.summary != draft.summary) {
+  if (base == null && draft.summary.isNotEmpty) {
+    lines.add(SchemaDiffLine(added: true, where: 'summary', what: draft.summary));
+  } else if (base != null && base.summary != draft.summary) {
     if (base.summary.isNotEmpty) lines.add(SchemaDiffLine(added: false, where: 'summary', what: base.summary));
     if (draft.summary.isNotEmpty) lines.add(SchemaDiffLine(added: true, where: 'summary', what: draft.summary));
   }
@@ -252,7 +268,23 @@ List<SchemaDiffLine> diffSchemas(ConfdbSchema? base, ConfdbSchema draft) {
       );
       continue;
     }
-    if (base != null && old == null) lines.add(SchemaDiffLine(added: true, where: name, what: 'new view'));
+    if (old == null) lines.add(SchemaDiffLine(added: true, where: name, what: 'new view'));
+    if (old != null && now != null && old.summary != now.summary) {
+      addPair(name, old.summary == null ? '' : 'summary: ${old.summary}', now.summary == null ? '' : 'summary: ${now.summary}');
+    }
+    final oldParameters = old?.parameters ?? const <String, ParameterDef>{};
+    final newParameters = now?.parameters ?? const <String, ParameterDef>{};
+    for (final parameter in {...oldParameters.keys, ...newParameters.keys}) {
+      final before = oldParameters[parameter];
+      final after = newParameters[parameter];
+      if (before != after) {
+        addPair(
+          '$name parameters',
+          before == null ? '' : '$parameter · ${before.presence}${before.summary == null ? '' : ' · ${before.summary}'}',
+          after == null ? '' : '$parameter · ${after.presence}${after.summary == null ? '' : ' · ${after.summary}'}',
+        );
+      }
+    }
     final before = old?.rules ?? const <ViewRule>[];
     final after = now?.rules ?? const <ViewRule>[];
     for (final r in before) {
@@ -263,17 +295,32 @@ List<SchemaDiffLine> diffSchemas(ConfdbSchema? base, ConfdbSchema draft) {
     }
   }
 
-  final oldLeaves = {for (final (p, n) in base?.storage.leaves() ?? const <(String, StorageNode)>[]) p: describeLeaf(n)};
-  final newLeaves = {for (final (p, n) in draft.storage.leaves()) p: describeLeaf(n)};
-  for (final e in oldLeaves.entries) {
-    if (newLeaves[e.key] != e.value) {
-      lines.add(SchemaDiffLine(added: false, where: 'storage', what: '${e.key}  ·  ${e.value}'));
+  final oldNodes = {for (final (_, p, n) in base?.storage.walk() ?? const <(int, String, StorageNode)>[]) p: node(n)};
+  final newNodes = {for (final (_, p, n) in draft.storage.walk()) p: node(n)};
+  for (final path in {...oldNodes.keys, ...newNodes.keys}) {
+    final before = oldNodes[path];
+    final after = newNodes[path];
+    if (before != after) {
+      if (before != null) lines.add(SchemaDiffLine(added: false, where: 'storage', what: '$path  ·  $before'));
+      if (after != null) lines.add(SchemaDiffLine(added: true, where: 'storage', what: '$path  ·  $after'));
     }
   }
-  for (final e in newLeaves.entries) {
-    if (oldLeaves[e.key] != e.value) {
-      lines.add(SchemaDiffLine(added: true, where: 'storage', what: '${e.key}  ·  ${e.value}'));
+  final oldAliases = base?.aliases ?? const <String, StorageNode>{};
+  for (final name in {...oldAliases.keys, ...draft.aliases.keys}) {
+    final before = oldAliases[name] == null ? null : node(oldAliases[name]!);
+    final after = draft.aliases[name] == null ? null : node(draft.aliases[name]!);
+    if (before != after) {
+      if (before != null) lines.add(SchemaDiffLine(added: false, where: 'aliases', what: '$name  ·  $before'));
+      if (after != null) lines.add(SchemaDiffLine(added: true, where: 'aliases', what: '$name  ·  $after'));
     }
   }
   return lines;
 }
+
+List<String> _contentPaths(List<ContentField> fields, [String prefix = '']) => [
+  for (final field in fields)
+    if (field.children.isEmpty)
+      prefix.isEmpty ? field.key : '$prefix.${field.key}'
+    else
+      ..._contentPaths(field.children, prefix.isEmpty ? field.key : '$prefix.${field.key}'),
+];

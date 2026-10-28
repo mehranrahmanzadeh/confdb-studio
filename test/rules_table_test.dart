@@ -5,6 +5,7 @@ import 'package:confdb_studio/state/app_controller.dart';
 import 'package:confdb_studio/widgets/app_icons.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -45,6 +46,63 @@ void main() {
       await tester.pumpAndSettle();
     }
   }
+
+  testWidgets('storage path actions do not include view shortcuts', (tester) async {
+    await openEditor(tester);
+    await tester.ensureVisible(find.byTooltip('Actions for wifi.ssid'));
+    await tester.tap(find.byTooltip('Actions for wifi.ssid'));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit'), findsOneWidget);
+    expect(find.text('Delete'), findsOneWidget);
+    expect(find.textContaining('Expose in '), findsNothing);
+    expect(find.textContaining('Open in '), findsNothing);
+  });
+
+  testWidgets('storage search filters paths and Ctrl+F focuses it', (tester) async {
+    await openEditor(tester);
+    final search = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'Search storage paths');
+    await tester.enterText(search, 'wifi.band');
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('Actions for wifi.band'), findsOneWidget);
+    expect(find.byTooltip('Actions for wifi.ssid'), findsNothing);
+
+    await tester.tap(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'request').first);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF, character: 'f');
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pump();
+    expect(tester.widget<TextField>(search).focusNode!.hasFocus, isTrue);
+  });
+
+  testWidgets('keyboard shortcuts add, reorder and delete a rule', (tester) async {
+    await openEditor(tester);
+    List<TextField> requestFields() =>
+        tester.widgetList<TextField>(find.byType(TextField)).where((field) => field.decoration?.hintText == 'request').toList();
+    final initial = requestFields().map((field) => field.controller!.text).toList();
+
+    await tester.tap(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'request').first);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyR, character: 'R');
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(requestFields(), hasLength(initial.length + 1));
+
+    await tester.tap(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'request').first);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    await tester.pumpAndSettle();
+    expect(requestFields().first.controller!.text, initial[1]);
+    expect(requestFields()[1].controller!.text, initial[0]);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.backspace);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(requestFields(), hasLength(initial.length));
+  });
 
   testWidgets('a rule to a map lets a subset of its fields be exposed via content', (tester) async {
     await openEditor(tester);

@@ -45,11 +45,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.textContaining('Add wifi.signal'));
     await tester.tap(find.textContaining('Add wifi.signal'));
     await tester.pump(const Duration(milliseconds: 500));
-    await tester.tap(find.text('Next'));
+    await tester.tap(find.text('Preview assertion'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Next'));
+    await tester.tap(find.text('Choose signing key'));
     await tester.pumpAndSettle();
     expect(find.text('No signing keys found'), findsOneWidget);
     expect(find.text('Create key'), findsOneWidget);
