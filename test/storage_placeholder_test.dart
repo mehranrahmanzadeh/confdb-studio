@@ -7,6 +7,7 @@ import 'package:confdb_studio/domain/analysis.dart';
 import 'package:confdb_studio/domain/schema_codec.dart';
 import 'package:confdb_studio/domain/storage_edit.dart';
 import 'package:confdb_studio/state/app_controller.dart';
+import 'package:confdb_studio/theme/app_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,6 +33,65 @@ const _expected = {
 Object? _actuators(StorageNode root) => (encodeStorage(root)['storage']! as Map)['schema']['actuators'];
 
 void main() {
+  testWidgets('rule selection highlights nested placeholders regardless of their names, values or filters', (tester) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero));
+    const id = SchemaId('acme', 'sets');
+    await tester.runAsync(
+      () => repo.saveDraft(
+        const ConfdbSchema(
+          id: id,
+          summary: '',
+          storage: StorageNode.root([
+            StorageNode(
+              key: 'v1',
+              kind: StorageKind.map,
+              valuesNode: StorageNode(
+                key: StorageNode.placeholderKey,
+                kind: StorageKind.map,
+                valuesNode: StorageNode(key: StorageNode.placeholderKey, kind: StorageKind.string),
+              ),
+            ),
+          ]),
+          views: [
+            ViewDef(
+              name: 'sets',
+              rules: [ViewRule(request: 'sets.{account}.{set-name}', storage: 'v1.{account}.{set-name}', access: RuleAccess.read)],
+            ),
+          ],
+          isDraft: true,
+        ),
+      ),
+    );
+    await tester.pumpWidget(
+      ConfdbStudioApp(
+        repository: repo,
+        initialRoute: const SchemaEditorRoute(id, view: 'sets'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final field = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'storage.path');
+    final colors = tester.element(field).colors;
+    final highlight = Color.alphaBlend(colors.secondaryContainer.withValues(alpha: 0.5), colors.surfaceContainerLow);
+    final highlighted = find.byWidgetPredicate(
+      (w) => w is Container && w.decoration is BoxDecoration && (w.decoration as BoxDecoration).color == highlight,
+    );
+
+    for (final path in ['v1.{account}.{set-name}', 'v1.alice.settings', 'v1.{owner}[.name={name}].{key}']) {
+      await tester.enterText(field, path);
+      await tester.tap(field);
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Actions for v1.{placeholder}.{placeholder}'), findsOneWidget);
+      expect(highlighted, findsOneWidget);
+      expect(find.descendant(of: highlighted, matching: find.text('<placeholder>')), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+    }
+  });
+
   test('a placeholder with typed values and children encodes as keys + values', () {
     var root = const StorageNode.root([StorageNode(key: 'actuators', kind: StorageKind.map)]);
     final map = root

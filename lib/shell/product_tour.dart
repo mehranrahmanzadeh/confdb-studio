@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:showcaseview/showcaseview.dart';
 
 import '../data/app_data.dart';
+import '../state/app_controller.dart';
 import '../theme/app_theme.dart';
 import '../theme/confdb_theme.dart';
 
@@ -78,6 +79,31 @@ class ProductTour {
 
   static bool _registered = false;
   static String? _activeStage;
+
+  /// Only pages with their own tour can replay it; authoring's later steps
+  /// must not replay the schema editor's hidden targets.
+  static List<GlobalKey>? keysForRoute(AppRoute route) => switch (route) {
+    OverviewRoute() => TourKeys.overview,
+    OnboardingRoute(choose: true) => TourKeys.choose,
+    SchemaEditorRoute() => TourKeys.editor,
+    _ => null,
+  };
+
+  /// Replays just this page without clearing any first-run markers. Wait for
+  /// the Help menu to close and omit targets hidden by the compact layout.
+  static void replay(BuildContext context, AppRoute route) {
+    final pageKeys = keysForRoute(route);
+    if (pageKeys == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!context.mounted) return;
+      ensureRegistered();
+      final showcase = ShowcaseView.get();
+      final keys = pageKeys.where(showcase.isTargetRendered).toList();
+      if (keys.isEmpty) return;
+      showcase.dismiss();
+      showcase.startShowCase(keys);
+    });
+  }
 
   /// Registers the showcase view once per process. Safe to call repeatedly.
   static void ensureRegistered() {

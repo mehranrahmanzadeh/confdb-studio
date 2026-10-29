@@ -5,6 +5,7 @@ import '../state/app_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
 import 'account_button.dart';
+import 'help_button.dart';
 import 'product_tour.dart';
 import 'snapd_status.dart';
 
@@ -56,6 +57,7 @@ class AppRail extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               AccountButton(compact: compact),
+              HelpButton(compact: compact),
               SnapdStatus(compact: compact),
             ],
           ),

@@ -268,7 +268,7 @@ class _TreeState extends State<_Tree> {
     super.didUpdateWidget(oldWidget);
     final focusPath = widget.focusPath;
     if (focusPath != null && focusPath != oldWidget.focusPath) {
-      _collapsed.removeWhere((path) => _isDescendant(focusPath, path));
+      _collapsed.removeWhere((path) => ruleCovers(path, focusPath) && !ruleCovers(focusPath, path));
     }
   }
 
@@ -306,8 +306,8 @@ class _TreeState extends State<_Tree> {
       if (_query.isNotEmpty && !visiblePaths.contains(path)) continue;
       if (_query.isEmpty && _collapsed.any((p) => _isDescendant(path, p))) continue;
       final warn = unexposed.contains(path);
-      final focused = path == focusPath;
-      final selected = path == selectedPath;
+      final focused = focusPath != null && ruleCovers(path, focusPath) && ruleCovers(focusPath, path);
+      final selected = selectedPath != null && ruleCovers(path, selectedPath) && ruleCovers(selectedPath, path);
       final isNew = draft.addedInDraft.contains(path);
       int used;
       if (node.isMap) {
@@ -371,112 +371,125 @@ class _TreeState extends State<_Tree> {
       // nothing to collapse.
       final expandable = node.isMap && node.children.isNotEmpty;
       rows.add(
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        Stack(
           children: [
-            Expanded(
-              child: InkWell(
-                mouseCursor: arrayElement ? MouseCursor.defer : WidgetStateMouseCursor.clickable,
-                borderRadius: BorderRadius.circular(8),
-                onTap: arrayElement
-                    ? null
-                    : () {
-                        onSelectPath(path);
-                        if (expandable) {
-                          setState(() {
-                            if (!_collapsed.add(path)) _collapsed.remove(path);
-                          });
-                        } else {
-                          onEdit(path);
-                        }
-                      },
-                child: Semantics(
-                  button: !arrayElement,
-                  label: arrayElement
-                      ? 'Array elements: ${node.typeLabel}'
-                      : expandable
-                      ? '${_collapsed.contains(path) ? 'Expand' : 'Collapse'} ${node.displayKey}'
-                      : 'Edit ${node.displayKey}: ${node.typeLabel}, ${used == 0 ? 'no views' : plural(used, 'view')}${warn ? ', not exposed' : ''}',
-                  child: Container(
-                    padding: EdgeInsets.fromLTRB(8 + depth * 20.0, 6, 8, 6),
-                    decoration: BoxDecoration(
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      mouseCursor: arrayElement ? MouseCursor.defer : WidgetStateMouseCursor.clickable,
                       borderRadius: BorderRadius.circular(8),
-                      color: selected || focused
-                          ? Color.alphaBlend(c.secondaryContainer.withValues(alpha: 0.5), c.surfaceContainerLow)
-                          : warn
-                          ? Color.alphaBlend(s.warningContainer.withValues(alpha: 0.45), c.surfaceContainerLow)
-                          : null,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Opacity(
-                              opacity: node.isMap ? 1 : 0,
-                              child: expandable
-                                  ? Semantics(
-                                      button: true,
-                                      label: '${_collapsed.contains(path) ? 'Expand' : 'Collapse'} ${node.displayKey}',
-                                      excludeSemantics: true,
-                                      child: Icon(
-                                        _collapsed.contains(path) ? AppIcons.chevronRight : AppIcons.expand,
-                                        size: 16,
-                                        color: c.onSurfaceVariant,
-                                      ),
-                                    )
-                                  : Icon(AppIcons.expand, size: 16, color: c.onSurfaceVariant),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Wrap(
-                                spacing: 8,
-                                runSpacing: 4,
-                                crossAxisAlignment: WrapCrossAlignment.center,
+                      onTap: arrayElement
+                          ? null
+                          : () {
+                              onSelectPath(path);
+                              if (expandable) {
+                                setState(() {
+                                  if (!_collapsed.add(path)) _collapsed.remove(path);
+                                });
+                              } else {
+                                onEdit(path);
+                              }
+                            },
+                      child: Semantics(
+                        button: !arrayElement,
+                        label: arrayElement
+                            ? 'Array elements: ${node.typeLabel}'
+                            : expandable
+                            ? '${_collapsed.contains(path) ? 'Expand' : 'Collapse'} ${node.displayKey}'
+                            : 'Edit ${node.displayKey}: ${node.typeLabel}, ${used == 0 ? 'no views' : plural(used, 'view')}${warn ? ', not exposed' : ''}',
+                        child: Container(
+                          padding: EdgeInsets.fromLTRB(8 + depth * 20.0, 6, 8, 6),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            color: selected || focused
+                                ? Color.alphaBlend(c.secondaryContainer.withValues(alpha: 0.5), c.surfaceContainerLow)
+                                : warn
+                                ? Color.alphaBlend(s.warningContainer.withValues(alpha: 0.45), c.surfaceContainerLow)
+                                : null,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
                                 children: [
-                                  if (placeholder || arrayElement) Icon(AppIcons.placeholder, size: 16, color: c.onSurfaceVariant),
-                                  Text(node.displayKey, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500)),
-                                  TypeChip(node.typeLabel),
-                                  if (node.secret) const SecretChip(),
-                                  if (isNew) const StatusBadge.info('New', icon: AppIcons.add),
+                                  Opacity(
+                                    opacity: node.isMap ? 1 : 0,
+                                    child: expandable
+                                        ? Semantics(
+                                            button: true,
+                                            label: '${_collapsed.contains(path) ? 'Expand' : 'Collapse'} ${node.displayKey}',
+                                            excludeSemantics: true,
+                                            child: Icon(
+                                              _collapsed.contains(path) ? AppIcons.chevronRight : AppIcons.expand,
+                                              size: 16,
+                                              color: c.onSurfaceVariant,
+                                            ),
+                                          )
+                                        : Icon(AppIcons.expand, size: 16, color: c.onSurfaceVariant),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Wrap(
+                                      spacing: 8,
+                                      runSpacing: 4,
+                                      crossAxisAlignment: WrapCrossAlignment.center,
+                                      children: [
+                                        if (placeholder || arrayElement) Icon(AppIcons.placeholder, size: 16, color: c.onSurfaceVariant),
+                                        Text(node.displayKey, style: context.text.bodyMedium?.mono.copyWith(fontWeight: FontWeight.w500)),
+                                        TypeChip(node.typeLabel),
+                                        if (node.secret) const SecretChip(),
+                                        if (isNew) const StatusBadge.info('New', icon: AppIcons.add),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  if (warn) ...[Icon(AppIcons.warning, size: 14, color: s.warning), const SizedBox(width: 4)],
+                                  Text(
+                                    used == 0 ? 'No views' : plural(used, 'view'),
+                                    style: context.text.bodySmall?.copyWith(color: warn ? s.warning : c.onSurfaceVariant),
+                                  ),
                                 ],
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            if (warn) ...[Icon(AppIcons.warning, size: 14, color: s.warning), const SizedBox(width: 4)],
-                            Text(
-                              used == 0 ? 'No views' : plural(used, 'view'),
-                              style: context.text.bodySmall?.copyWith(color: warn ? s.warning : c.onSurfaceVariant),
-                            ),
-                          ],
-                        ),
-                        if (sub.isNotEmpty || (node.ephemeral && !node.isMap))
-                          Padding(
-                            padding: const EdgeInsets.only(left: 24, top: 2),
-                            child: Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
-                              crossAxisAlignment: WrapCrossAlignment.center,
-                              children: [
-                                if (node.ephemeral && !node.isMap) const EphemeralChip(),
-                                Text(
-                                  sub.join(' · '),
-                                  style: context.text.bodySmall?.copyWith(color: warn ? s.warning : c.onSurfaceVariant),
+                              if (sub.isNotEmpty || (node.ephemeral && !node.isMap))
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 24, top: 2),
+                                  child: Wrap(
+                                    spacing: 6,
+                                    runSpacing: 4,
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    children: [
+                                      if (node.ephemeral && !node.isMap) const EphemeralChip(),
+                                      Text(
+                                        sub.join(' · '),
+                                        style: context.text.bodySmall?.copyWith(color: warn ? s.warning : c.onSurfaceVariant),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ],
-                            ),
+                            ],
                           ),
-                      ],
+                        ),
+                      ),
                     ),
                   ),
-                ),
+                  menu,
+                ],
               ),
             ),
-            menu,
+            for (var level = 0; level < depth; level++)
+              Positioned(
+                left: 16 + level * 20.0,
+                top: 0,
+                bottom: 0,
+                child: IgnorePointer(child: Container(width: 1, color: c.outlineVariant)),
+              ),
           ],
         ),
       );
-      rows.add(const SizedBox(height: 2));
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -486,9 +499,15 @@ class _TreeState extends State<_Tree> {
           child: TextField(
             controller: widget.searchController,
             focusNode: widget.searchFocusNode,
+            textAlignVertical: TextAlignVertical.center,
             onChanged: (value) => setState(() => _query = value.trim()),
             decoration: InputDecoration(
               isDense: true,
+              contentPadding: const EdgeInsets.symmetric(vertical: 11),
+              filled: false,
+              border: UnderlineInputBorder(borderSide: BorderSide(color: c.outlineVariant)),
+              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.outlineVariant)),
+              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: c.primary, width: 2)),
               hintText: 'Search storage paths',
               prefixIcon: const Icon(Icons.search, size: 18),
               suffixIcon: _query.isEmpty
@@ -501,7 +520,7 @@ class _TreeState extends State<_Tree> {
                       },
                       icon: const Icon(Icons.close, size: 16),
                     ),
-              helperText: _query.isEmpty ? 'Ctrl+F to focus' : '${matches.length} matching ${matches.length == 1 ? 'path' : 'paths'}',
+              helperText: _query.isEmpty ? null : '${matches.length} matching ${matches.length == 1 ? 'path' : 'paths'}',
             ),
           ),
         ),
