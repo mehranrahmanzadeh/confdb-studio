@@ -16,6 +16,10 @@ manage which snaps reach which views, and follow every change.
 
 ### Schema Editor
 
+Each rule card maps a request path to a storage path, with access and (for
+maps) field-selection controls below. The Storage pane has separate Tree,
+JSON, and Aliases tabs; use Aliases to create and manage reusable types.
+
 ![Confdb schema editor](docs/screenshots/schema_editor.png)
 
 ### Data Explorer
@@ -77,6 +81,9 @@ flutter analyze
 flutter test                                    # unit + widget tests
 flutter test test/visual --update-goldens --dart-define=SCREENSHOTS=/abs/dir
                                                 # renders 39 screen states to PNGs
+flutter test test/integration --dart-define=SNAPD_IT=true
+                                                # read-only checks against local snapd
+                                                # (a view read may show a polkit prompt)
 ```
 
 ### Real snapd integration tests

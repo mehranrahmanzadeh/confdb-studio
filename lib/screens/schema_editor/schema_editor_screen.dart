@@ -26,7 +26,7 @@ import '../signing_key/signing_key_panel.dart';
 import 'alias_dialog.dart';
 import 'naming_conventions_dialog.dart';
 import 'preview_panel.dart';
-import 'rules_table.dart';
+import 'rule_cards.dart';
 import 'storage_node_dialog.dart';
 import 'storage_pane.dart';
 import 'view_parameters_dialog.dart';
@@ -124,7 +124,7 @@ class _EditorState extends State<_Editor> {
   late String? _focusPath = _editRoute?.focusStoragePath;
   late String? _selectedPath = _focusPath;
   String? _focusRule;
-  bool _json = false;
+  StoragePaneTab _storageTab = StoragePaneTab.tree;
   bool _viewsCollapsed = false;
   bool _compactStorage = false;
   Timer? _save;
@@ -286,7 +286,7 @@ class _EditorState extends State<_Editor> {
   void _focusStorageSearch() {
     setState(() {
       _compactStorage = true;
-      _json = false;
+      _storageTab = StoragePaneTab.tree;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _storageSearchFocus.requestFocus();
@@ -492,6 +492,7 @@ class _EditorState extends State<_Editor> {
   Future<void> _addAlias() async {
     final edit = await showAliasDialog(context, draft: _draft);
     if (edit == null || !mounted) return;
+    setState(() => _storageTab = StoragePaneTab.aliases);
     _update(_draft.copyWith(aliases: {..._draft.aliases, edit.name: edit.node}));
   }
 
@@ -551,7 +552,7 @@ class _EditorState extends State<_Editor> {
   void _showInStorage(String path) => setState(() {
     _focusPath = path;
     _selectedPath = path;
-    _json = false;
+    _storageTab = StoragePaneTab.tree;
   });
 
   static const _minSide = 200.0, _maxViews = 480.0, _minStorage = 280.0, _maxStorage = 760.0, _minCenter = 530.0;
@@ -562,13 +563,14 @@ class _EditorState extends State<_Editor> {
   /// views pane can also be collapsed to a narrow strip via [_viewsCollapsed].
   Widget _resizableRow(double total, Widget views, Widget center, Widget storage) {
     final app = context.app;
+    final json = _storageTab == StoragePaneTab.json;
     final room = total - 2 * ResizeHandle.width - _minCenter;
     double clampViews(double w, double right) => w.clamp(_minSide, (room - right).clamp(_minSide, _maxViews));
     double clampStorage(double w, double left) => w.clamp(_minStorage, (room - left).clamp(_minStorage, _maxStorage));
-    var right = clampStorage(_json ? app.jsonPaneWidth : app.treePaneWidth, _viewsCollapsed ? _collapsedViewsWidth : _minSide);
+    var right = clampStorage(json ? app.jsonPaneWidth : app.treePaneWidth, _viewsCollapsed ? _collapsedViewsWidth : _minSide);
     final left = _viewsCollapsed ? _collapsedViewsWidth : clampViews(app.viewsPaneWidth, right);
     right = clampStorage(right, left);
-    void setRight(double w) => setState(() => _json ? app.jsonPaneWidth = w : app.treePaneWidth = w);
+    void setRight(double w) => setState(() => json ? app.jsonPaneWidth = w : app.treePaneWidth = w);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -586,8 +588,8 @@ class _EditorState extends State<_Editor> {
         Expanded(child: center),
         ResizeHandle(
           label: 'Resize storage panel',
-          onDrag: (dx) => setRight(clampStorage(clampStorage(_json ? app.jsonPaneWidth : app.treePaneWidth, left) - dx, left)),
-          onReset: () => setRight(_json ? AppController.defaultJsonPaneWidth : AppController.defaultTreePaneWidth),
+          onDrag: (dx) => setRight(clampStorage(clampStorage(json ? app.jsonPaneWidth : app.treePaneWidth, left) - dx, left)),
+          onReset: () => setRight(json ? AppController.defaultJsonPaneWidth : AppController.defaultTreePaneWidth),
         ),
         SizedBox(width: right, child: storage),
       ],
@@ -639,8 +641,8 @@ class _EditorState extends State<_Editor> {
         onSelectPath: _selectStoragePath,
         searchController: _storageSearchController,
         searchFocusNode: _storageSearchFocus,
-        json: _json,
-        onJson: (v) => setState(() => _json = v),
+        tab: _storageTab,
+        onTabChanged: (v) => setState(() => _storageTab = v),
         onStorage: (root, aliases) => _update(_draft.copyWith(storage: root, aliases: aliases)),
         onAdd: _addNode,
         onAddAlias: _addAlias,
@@ -1323,7 +1325,7 @@ class _Center extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          RulesTable(
+          RuleCards(
             key: ValueKey('rules:${v.name}'),
             view: v,
             storage: draft.storage,

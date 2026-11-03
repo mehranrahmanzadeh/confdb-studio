@@ -6,6 +6,7 @@ import 'package:confdb_studio/shell/app_shell.dart';
 import 'package:confdb_studio/state/app_controller.dart';
 import 'package:confdb_studio/state/app_scope.dart';
 import 'package:confdb_studio/state/staging_controller.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -28,6 +29,16 @@ Future<void> robotWithValues(FakeConfdbRepository repo) async {
     'accelerometers.rear': {'x': 0.0, 'y': 0.2},
   });
 }
+
+Future<void> networkDraftWithAliases(FakeConfdbRepository repo) => repo.saveDraft(
+  networkDraft.copyWith(
+    aliases: const {
+      'network-name': StorageNode(key: 'network-name', kind: StorageKind.string, pattern: r'^[a-z0-9-]+$'),
+      'port-number': StorageNode(key: 'port-number', kind: StorageKind.int, min: 1, max: 65535),
+      'wireless-band': StorageNode(key: 'wireless-band', kind: StorageKind.string, choices: ['2.4GHz', '5GHz', 'auto']),
+    },
+  ),
+);
 
 StagingController staging(WidgetTester t) => t.element(find.byType(AppShell)).staging;
 
@@ -163,6 +174,31 @@ final shots = <Shot>[
     const SchemaEditorRoute(networkId),
     act: (t) async {
       await t.tap(find.text('JSON'));
+    },
+  ),
+  Shot('editor-aliases-empty', const SchemaEditorRoute(networkId), act: (t) async => t.tap(find.text('Aliases'))),
+  Shot('editor-aliases', const SchemaEditorRoute(networkId), setup: networkDraftWithAliases, act: (t) async => t.tap(find.text('Aliases'))),
+  Shot(
+    'editor-aliases-compact',
+    const SchemaEditorRoute(networkId),
+    size: compact,
+    setup: networkDraftWithAliases,
+    act: (t) async {
+      await t.tap(find.text('Storage'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('Aliases'));
+    },
+  ),
+  Shot(
+    'editor-aliases-min-width',
+    const SchemaEditorRoute(networkId),
+    setup: networkDraftWithAliases,
+    act: (t) async {
+      await t.tap(find.text('Aliases'));
+      await t.pumpAndSettle();
+      await t.drag(find.bySemanticsLabel('Resize storage panel'), const Offset(2000, 0), kind: PointerDeviceKind.mouse);
+      await t.pumpAndSettle();
+      expect(t.getSize(find.text('Aliases')).height, lessThan(25));
     },
   ),
   Shot(
@@ -334,6 +370,12 @@ final shots = <Shot>[
     },
   ),
   Shot('editor-placeholders', const SchemaEditorRoute(SchemaId('acme', 'robot'), view: 'control'), setup: robotWithValues),
+  Shot(
+    'editor-rule-cards',
+    const SchemaEditorRoute(SchemaId('acme', 'robot'), view: 'control'),
+    size: const Size(1800, 1200),
+    setup: robotWithValues,
+  ),
   Shot(
     'editor-placeholder-errors',
     const SchemaEditorRoute(SchemaId('acme', 'robot'), view: 'control'),
