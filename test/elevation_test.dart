@@ -56,6 +56,51 @@ String _snapStub(String? keyOwner) {
 
 void main() {
   writeErrorTests();
+
+  group('the snap command transport’s elevation prefix', () {
+    late Directory dir;
+    setUp(() => dir = Directory.systemTemp.createTempSync('elevate'));
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    /// A stand-in for `pkexec`/`sudo` that records the argv it was handed and
+    /// then prints an empty snapd response.
+    Future<List<String>> argvFor({required List<String> elevate, required bool interactive, String method = 'PUT'}) async {
+      final log = File('${dir.path}/argv');
+      // The first word of `elevate` is the executable, so that's the one we
+      // have to stand in for. Everything after it must arrive as arguments.
+      final exe = File('${dir.path}/${elevate.isEmpty ? 'snap' : elevate.first}')
+        ..writeAsStringSync('#!/bin/sh\nprintf "%s\\n" "\$@" > ${log.path}\ncat >/dev/null\necho \'{"type":"sync","result":{}}\'\n');
+      await Process.run('chmod', ['+x', exe.path]);
+
+      final t = SnapCommandTransport(
+        snap: elevate.isEmpty ? exe.path : '${dir.path}/snap',
+        elevate: [if (elevate.isNotEmpty) exe.path, ...elevate.skip(1)],
+      );
+      await t.request(method, '/v2/confdb/a/b/c', body: const {'values': {}}, interactive: interactive);
+      return log.readAsLinesSync();
+    }
+
+    test('passes a multi-word prefix as separate arguments, not as one executable', () async {
+      // Regression: `sudo -n` must be exec'd as `sudo` with `-n` as an
+      // argument. Treating the whole string as a program name looks for a
+      // binary literally called "sudo -n" and always fails.
+      final argv = await argvFor(elevate: const ['sudo', '-n'], interactive: true);
+      expect(argv.first, '-n');
+      expect(argv[1], '${dir.path}/snap', reason: 'the snap command must follow the prefix');
+      expect(argv, contains('/v2/confdb/a/b/c'));
+    });
+
+    test('runs the snap command directly when the prefix is empty', () async {
+      final argv = await argvFor(elevate: const [], interactive: true);
+      // No prefix, so `debug api` is the start of the argv.
+      expect(argv.take(2), ['debug', 'api']);
+    });
+
+    test('does not elevate reads', () async {
+      final argv = await argvFor(elevate: const [], interactive: true, method: 'GET');
+      expect(argv.take(2), ['debug', 'api']);
+    });
+  });
   test('a write snapd refuses over the socket is retried as root', () async {
     final socket = _Recording(_denied);
     final root = _Recording(_ok);

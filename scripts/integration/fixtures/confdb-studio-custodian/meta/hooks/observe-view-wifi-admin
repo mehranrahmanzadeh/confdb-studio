@@ -1,0 +1,5 @@
+#!/bin/sh -e
+# Runs after a write is committed. Records the value so the suite can tell a
+# committed change apart from one that was rolled back.
+ssid=$(snapctl get --view :wifi-admin ssid 2>/dev/null || true)
+echo "$ssid" > "$SNAP_COMMON"/last-observed

@@ -1,0 +1,16 @@
+#!/bin/sh -e
+# Runs before a write is committed. Exiting non-zero makes snapd reject the
+# change and roll the write back, which is what ConfdbRepository surfaces as
+# ChangeStatus.error (rather than as a thrown exception).
+#
+# The suite triggers this on demand by writing the magic SSID below, so the
+# rejection path is deterministic and doesn't need the hook to be swapped out
+# between tests.
+ssid=$(snapctl get --view :wifi-admin ssid 2>/dev/null || true)
+
+if [ "$ssid" = "reject-me" ]; then
+    echo "custodian refuses the SSID \"$ssid\"" >&2
+    exit 1
+fi
+
+echo "$ssid" > "$SNAP_COMMON"/last-change-view

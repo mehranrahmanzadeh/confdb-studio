@@ -56,7 +56,9 @@ All data goes through `ConfdbRepository` (`lib/data/confdb_repository.dart`):
     `X-Allow-Interaction` so polkit can ask for admin authentication.
     Writes snapd refuses there (installing assertions accepts only root) are
     retried as root through `pkexec snap debug api`.
-  - `SnapCommandTransport`: `snap debug api`, with `pkexec` for writes.
+  - `SnapCommandTransport`: `snap debug api`, with `pkexec` for writes. The
+    command prefix is configurable (`elevate:`), so headless callers can use
+    `['sudo', '-n']`, or nothing at all when already root.
 
   Signing uses `snap sign` and `snap keys` (keys live in the user's keyring).
 
@@ -77,7 +79,44 @@ flutter analyze
 flutter test                                    # unit + widget tests
 flutter test test/visual --update-goldens --dart-define=SCREENSHOTS=/abs/dir
                                                 # renders 39 screen states to PNGs
-flutter test test/integration --dart-define=SNAPD_IT=true
-                                                # read-only checks against local snapd
-                                                # (a view read may show a polkit prompt)
 ```
+
+### Integration tests against a real snapd
+
+`test/integration/` checks `ConfdbRepository` against a real snapd over both
+transports. The suites are off unless `--dart-define=SNAPD_IT=true` is passed,
+and the writable ones refuse to run anywhere that isn't disposable — see
+[`scripts/integration/`](scripts/integration) and
+[the safety gate](test/integration/support/environment.dart).
+
+| Suite | Needs | What it covers |
+| --- | --- | --- |
+| `snapd_readonly_test.dart` | any snapd | Smoke test; safe on your own machine (a view read may show a polkit prompt) |
+| `snapd_builtin_test.dart` | a disposable machine | Schema parsing, snap/connection listing, error semantics, drafts — against the `system/validation-sets` schema snapd compiles in, so no credentials or signed fixtures are needed |
+| `snapd_custodian_test.dart` | a disposable machine **and** a test-keys snapd | Reads, writes, unsets, custodian rejection and rollback, write-only values, connect/disconnect |
+
+The custodian suite needs a signed `confdb-schema`, and snapd only trusts a
+signing key that was compiled into it — there is no runtime way to add one. So
+provisioning builds snapd with `-tags withtestkeys`, which takes several
+minutes and must never be done to a machine you care about.
+
+Run everything in a throwaway LXD **virtual machine** (not a container, which
+would share your own snapd):
+
+```sh
+scripts/integration/run-lxd.sh              # stock snapd
+scripts/integration/run-lxd.sh --test-keys  # + signed fixture and custodian
+```
+
+The `snapd integration` GitHub workflow runs both suites on pull requests and
+nightly. Manual runs can skip the test-keys suite. To run the suites by hand on
+a machine you've already provisioned:
+
+```sh
+sudo scripts/integration/provision.sh --kind lxd-vm [--test-keys]
+sudo -E env "PATH=$PATH" flutter test test/integration \
+  --dart-define=SNAPD_IT=true [--dart-define=SNAPD_IT_TEST_KEYS=true]
+```
+
+They run as root because snapd only lets an administrator read or write confdb
+values and nothing can answer a polkit prompt in a headless environment.

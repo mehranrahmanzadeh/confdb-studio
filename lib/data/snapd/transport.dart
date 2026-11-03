@@ -103,10 +103,18 @@ class UnixSocketTransport implements SnapdTransport {
 
 /// Runs `snap debug api`, with `pkexec` in front for interactive (privileged) calls.
 class SnapCommandTransport implements SnapdTransport {
-  SnapCommandTransport({this.snap = 'snap', this.pkexec = 'pkexec'});
+  /// [elevate] is the command prefix privileged writes run under, as separate
+  /// arguments — the first entry is the executable. It defaults to `pkexec`,
+  /// which prompts through polkit. Headless callers (integration tests,
+  /// automation) can pass something non-interactive such as
+  /// `['sudo', '-n']`, or `const []` when already running as root.
+  SnapCommandTransport({this.snap = 'snap', this.elevate = const ['pkexec']});
 
   final String snap;
-  final String pkexec;
+
+  /// Command prefix for privileged writes, e.g. `['pkexec']`. Empty runs them
+  /// directly, which is what you want when the process is already root.
+  final List<String> elevate;
 
   @override
   String get name => 'snap command';
@@ -130,9 +138,11 @@ class SnapCommandTransport implements SnapdTransport {
       if (payload != null) ...['-H', 'Content-Type: $contentType'],
       _pathWithQuery(path, query),
     ];
-    // Writes that need root go through pkexec; snapd treats root as authorised.
-    final exe = interactive && method != 'GET' ? pkexec : snap;
-    final fullArgs = exe == pkexec ? [snap, ...args] : args;
+    // Writes that need root go through `elevate` (pkexec by default); snapd
+    // treats root as authorised.
+    final elevated = interactive && method != 'GET' && elevate.isNotEmpty;
+    final exe = elevated ? elevate.first : snap;
+    final fullArgs = elevated ? [...elevate.skip(1), snap, ...args] : args;
     final Process proc;
     try {
       proc = await Process.start(exe, fullArgs);
@@ -147,7 +157,7 @@ class SnapCommandTransport implements SnapdTransport {
     final text = await out;
     if (text.trim().isEmpty) {
       final msg = (await err).trim();
-      if (exe == pkexec && (code == 126 || code == 127)) {
+      if (elevated && (code == 126 || code == 127)) {
         throw const ConfdbException('Authentication was cancelled.', kind: ConfdbErrorKind.permissionDenied);
       }
       throw ConfdbException(msg.isEmpty ? '`snap debug api` exited with status $code' : msg, kind: ConfdbErrorKind.unreachable);

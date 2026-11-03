@@ -1,0 +1,29 @@
+# Custodian snap for the integration suite.
+#
+# It plugs the view from upstream's signed test schema (developer1/network),
+# which provision.sh acknowledges, and implements the hooks the suite needs to
+# drive snapd's custodian behaviour deterministically:
+#
+#   change-view-wifi-admin   rejects a well-known value, so the suite can check
+#                            that a rejected change comes back as
+#                            ChangeStatus.error with the write rolled back
+#   save-view-wifi-admin     records that the write was committed
+#   observe-view-wifi-admin  records the value that was committed
+#
+# Built and installed with --dangerous by provision.sh; never published.
+name: confdb-studio-custodian
+version: '1.0'
+summary: Custodian fixture for confdb_studio's integration tests
+description: |
+  Not for general use. Installed into a disposable test machine so the
+  confdb_studio integration suite has a custodian snap whose hooks it controls.
+base: core24
+confinement: strict
+grade: devel
+
+plugs:
+  wifi-admin:
+    interface: confdb
+    account: developer1
+    view: network/wifi-admin
+    role: custodian

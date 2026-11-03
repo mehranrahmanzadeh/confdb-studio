@@ -1,0 +1,106 @@
+name: snapd integration
+
+# Writable tests against a real snapd. They acknowledge assertions, install
+# snaps and write confdb values, so they only ever run on a GitHub-hosted
+# runner (thrown away after the job) — never on a self-hosted one.
+#
+# Run both suites on pull requests and nightly. Manual runs can skip the
+# test-keys job, which builds snapd from source.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      test-keys:
+        description: Build a test-keys snapd and run the custodian suite too
+        type: boolean
+        default: true
+  schedule:
+    - cron: '20 3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapd-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.47.7
+
+jobs:
+  builtin:
+    name: Stock snapd
+    # Must be a GitHub-hosted runner: the suite refuses to mutate anything else.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Provision
+        run: |
+          sudo env "GITHUB_ACTIONS=$GITHUB_ACTIONS" "CI=$CI" \
+            "RUNNER_ENVIRONMENT=$RUNNER_ENVIRONMENT" \
+            scripts/integration/provision.sh --kind github
+
+      - name: Test
+        # snapd only lets an administrator read or write confdb values, and
+        # there's no one to answer a polkit prompt here, so the suite runs as
+        # root. `-E` plus an explicit PATH keeps the Flutter the action set up.
+        run: |
+          sudo -E env "PATH=$PATH" flutter test test/integration/snapd_builtin_test.dart \
+            --dart-define=SNAPD_IT=true
+
+      - name: Diagnostics
+        if: failure()
+        run: scripts/integration/diagnostics.sh
+
+  custodian:
+    name: Test-keys snapd
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || inputs.test-keys
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Provision with test keys
+        # Builds snapd with -tags withtestkeys, acks the signed fixture schema
+        # and installs the custodian fixture snap.
+        run: |
+          sudo env "GITHUB_ACTIONS=$GITHUB_ACTIONS" "CI=$CI" \
+            "RUNNER_ENVIRONMENT=$RUNNER_ENVIRONMENT" \
+            scripts/integration/provision.sh --kind github --test-keys
+
+      - name: Test
+        run: |
+          sudo -E env "PATH=$PATH" flutter test test/integration \
+            --dart-define=SNAPD_IT=true --dart-define=SNAPD_IT_TEST_KEYS=true
+
+      - name: Diagnostics
+        if: failure()
+        run: scripts/integration/diagnostics.sh
+
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapd-diagnostics
+          path: ${{ runner.temp }}/snapd-diagnostics
+          retention-days: 7
