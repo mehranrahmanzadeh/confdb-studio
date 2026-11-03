@@ -1,0 +1,31 @@
+{
+  "type": "confdb-schema",
+  "authority-id": "developer1",
+  "account-id": "developer1",
+  "name": "studio",
+  "revision": "1",
+  "timestamp": "2026-01-01T00:00:00Z",
+  "summary": "Studio integration fixture",
+  "views": {
+    "admin": {
+      "rules": [
+        {"request": "name", "storage": "name"},
+        {"request": "count", "storage": "count"},
+        {"request": "enabled", "storage": "enabled"},
+        {"request": "items", "storage": "items"},
+        {"request": "labels.{key}", "storage": "labels.{key}"},
+        {"request": "password", "storage": "password", "access": "write"},
+        {"request": "token", "storage": "token"},
+        {"request": "status", "storage": "status", "access": "read"},
+        {"request": "runtime", "storage": "runtime"}
+      ]
+    },
+    "observer": {
+      "rules": [
+        {"request": "name", "storage": "name", "access": "read"},
+        {"request": "count", "storage": "count", "access": "read"}
+      ]
+    }
+  },
+  "body": "{\"storage\":{\"schema\":{\"name\":\"string\",\"count\":\"int\",\"enabled\":\"bool\",\"items\":{\"type\":\"array\",\"values\":\"string\"},\"labels\":{\"type\":\"map\",\"keys\":\"string\",\"values\":\"string\"},\"password\":\"string\",\"token\":{\"type\":\"string\",\"visibility\":\"secret\"},\"status\":\"string\",\"runtime\":{\"type\":\"string\",\"ephemeral\":true}}}}"
+}

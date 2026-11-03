@@ -1,0 +1,22 @@
+#!/bin/bash
+# Only the remote assertion service is substituted; all other commands are real.
+set -euo pipefail
+if [[ ${1:-} == known && ${2:-} == --remote ]]; then
+    type="${3:?Missing assertion type}"
+    case "$type" in
+        account|account-key|confdb-schema) ;;
+        *) echo "Unexpected remote assertion type: $type" >&2; exit 1 ;;
+    esac
+    file="${CONFDB_IT_ROOT:?}/remote/$type"
+    [[ -f "$file" ]] || { echo "No test Store assertion: $type" >&2; exit 1; }
+    shift 3
+    for filter in "$@"; do
+        grep -Fxq -- "${filter%%=*}: ${filter#*=}" "$file" || {
+            echo "Test Store assertion not found: $type $filter" >&2
+            exit 1
+        }
+    done
+    cat "$file"
+else
+    exec /usr/bin/snap "$@"
+fi
