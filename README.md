@@ -101,6 +101,12 @@ packages, SDKs and the base snap. Test-key trust, unprotected signing keys and
 system changes never leave the VM. Do not install these snapd packages on a
 normal machine.
 
+The workflow permits IPv4 egress from `lxdbr0` and established replies through
+the runner's forwarding firewall, avoiding Docker's default forwarding drop.
+The local runner does not change host firewall rules; if Docker or another
+firewall blocks VM internet access, allow equivalent bridge traffic locally.
+APT repository update failures stop setup immediately.
+
 Both Unix-socket and `snap debug api` transports exercise system status and
 feature enablement, accounts and schema decoding, draft persistence/import,
 typed values and unsets, access rules, secret masking, ephemeral load hooks,

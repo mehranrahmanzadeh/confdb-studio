@@ -9,7 +9,7 @@ fi
 
 exec > >(tee /var/tmp/confdb-results/guest.log) 2>&1
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
+apt-get -o APT::Update::Error-Mode=any update
 apt-get install -y --no-install-recommends \
     git ca-certificates curl xz-utils unzip zip clang cmake ninja-build \
     pkg-config libgtk-3-dev liblzma-dev gnupg golang-go devscripts equivs

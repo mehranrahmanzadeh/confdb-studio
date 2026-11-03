@@ -34,6 +34,14 @@ jobs:
           # A dir pool keeps the VM image sparse; sized pools can be too small.
           sudo lxd init --auto --storage-backend dir || sudo lxd init --auto
           sudo lxc storage list
+          # Docker sets the FORWARD policy to DROP on hosted runners, which
+          # silently blackholes LXD guest traffic (IPv4 connects time out).
+          # Allow only bridge egress and its replies, not all forwarded traffic.
+          echo "FORWARD chain before:"; sudo iptables -w -S FORWARD
+          sudo iptables -w -I FORWARD -i lxdbr0 -j ACCEPT
+          sudo iptables -w -I FORWARD -o lxdbr0 \
+            -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+          echo "FORWARD chain after:"; sudo iptables -w -S FORWARD
       - name: Build snapd with test keys and test in a fresh VM
         run: |
           sudo env SNAPD_IT_OUTPUT="$RUNNER_TEMP/snapd-integration" \
