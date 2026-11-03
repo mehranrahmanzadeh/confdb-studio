@@ -10,6 +10,7 @@
 # Usage: sudo scripts/integration/provision.sh --kind github|lxd-vm [--test-keys]
 set -euo pipefail
 
+SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 MARKER=/etc/confdb-studio-integration
 KIND=
 TEST_KEYS=false
@@ -127,7 +128,7 @@ if [ "$TEST_KEYS" = true ]; then
   say "Installing the custodian fixture snap"
   # Ours, not upstream's: the suite needs a change-view hook whose rejection
   # behaviour it controls.
-  src=$(cd "$(dirname "$0")/fixtures/confdb-studio-custodian" && pwd)
+  src="$SCRIPT_DIR/fixtures/confdb-studio-custodian"
   chmod +x "$src"/meta/hooks/*
   snap pack "$src" --filename "$WORKDIR/confdb-studio-custodian.snap" >/dev/null
   snap install --dangerous "$WORKDIR/confdb-studio-custodian.snap"

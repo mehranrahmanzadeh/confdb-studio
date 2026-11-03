@@ -67,7 +67,8 @@ lxc exec "$NAME" -- bash -lc 'cd /root/confdb_studio && PATH=$PATH:/snap/bin flu
 say "Provisioning snapd"
 provision_args=(--kind lxd-vm)
 [ "$TEST_KEYS" = true ] && provision_args+=(--test-keys)
-lxc exec "$NAME" -- /root/confdb_studio/scripts/integration/provision.sh "${provision_args[@]}"
+# Match the relative invocation used by the GitHub workflow.
+lxc exec "$NAME" --cwd /root/confdb_studio -- scripts/integration/provision.sh "${provision_args[@]}"
 
 say "Running the suite"
 defines=(--dart-define=SNAPD_IT=true)
