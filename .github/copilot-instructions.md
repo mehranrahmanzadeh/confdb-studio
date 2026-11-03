@@ -84,12 +84,20 @@ render screenshots only when `SCREENSHOTS` is set:
 flutter test test/visual --update-goldens --dart-define=SCREENSHOTS=/abs/dir
 ```
 
-Integration tests are opt-in and read-only; a view read can trigger a polkit
-prompt:
+Integration tests are destructive: they replace the machine's snapd with a
+source build of snapd's latest stable release, using test keys.
+`scripts/integration/run_suite.sh` does this in place and refuses to run
+unless the machine is disposable. Locally, use the LXD VM wrapper:
 
 ```sh
-flutter test test/integration --dart-define=SNAPD_IT=true
+./scripts/test_snapd_integration.sh
 ```
+
+The `snapd integration` workflow runs `run_suite.sh` directly on the ephemeral
+GitHub runner instead of nesting a VM. Both transports
+use real snapd; only Store authentication/publishing and remote assertion
+retrieval are substituted. Never run this suite against the host's snapd.
+See README.md for prerequisites, diagnostics and debugging options.
 
 The design-handoff file `lib/theme/confdb_theme.dart` has an explicit
 instruction to preserve its original layout; avoid formatting it as part of

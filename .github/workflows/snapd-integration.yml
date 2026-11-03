@@ -1,0 +1,51 @@
+name: snapd integration
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapd-integration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space for the snapd and Flutter builds
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+      - name: Build snapd with test keys and run the suite
+        env:
+          # Keeps the snapd release lookup off the unauthenticated rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          # The runner is ephemeral, so the suite replaces its snapd in place.
+          sudo env CONFDB_IT_DESTRUCTIVE=1 GITHUB_TOKEN="$GITHUB_TOKEN" \
+            bash scripts/integration/run_suite.sh
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          # The results directory is root-owned, so redirect inside sudo and
+          # make it readable for the upload step.
+          sudo mkdir -p /var/tmp/confdb-results
+          sudo sh -c 'journalctl -u snapd --no-pager \
+            >/var/tmp/confdb-results/snapd-journal.log 2>&1' || true
+          sudo chmod -R a+rX /var/tmp/confdb-results || true
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapd-integration
+          path: /var/tmp/confdb-results
+          if-no-files-found: warn
+          retention-days: 7
