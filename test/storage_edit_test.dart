@@ -105,7 +105,7 @@ void main() {
       await tester.enterText(find.widgetWithText(TextField, 'Key'), 'frequency');
       await tester.tap(find.widgetWithText(FilledButton, 'Save'));
       await tester.pumpAndSettle();
-      expect(find.text('wifi.frequency'), findsWidgets, reason: 'the rules table and the views tree follow the rename');
+      expect(find.text('wifi.frequency'), findsWidgets, reason: 'the rule cards and the views tree follow the rename');
       // Renaming introduces no new lint error (only the draft's existing signal one).
       expect(find.textContaining('storage path `wifi.band` does not exist'), findsNothing);
     });

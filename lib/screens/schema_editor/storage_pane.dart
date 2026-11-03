@@ -12,7 +12,9 @@ import '../../widgets/chips.dart';
 import '../../widgets/status_badge.dart';
 import 'schema_editor_screen.dart';
 
-/// Right pane of the editor: the storage schema as a tree or as JSON.
+enum StoragePaneTab { tree, json, aliases }
+
+/// Right pane of the editor: the storage tree, JSON, or reusable aliases.
 class StoragePane extends StatelessWidget {
   const StoragePane({
     super.key,
@@ -23,8 +25,8 @@ class StoragePane extends StatelessWidget {
     required this.onSelectPath,
     required this.searchController,
     required this.searchFocusNode,
-    required this.json,
-    required this.onJson,
+    required this.tab,
+    required this.onTabChanged,
     required this.onStorage,
     required this.onAdd,
     required this.onAddAlias,
@@ -43,8 +45,8 @@ class StoragePane extends StatelessWidget {
   final ValueChanged<String> onSelectPath;
   final TextEditingController searchController;
   final FocusNode searchFocusNode;
-  final bool json;
-  final ValueChanged<bool> onJson;
+  final StoragePaneTab tab;
+  final ValueChanged<StoragePaneTab> onTabChanged;
   final void Function(StorageNode storage, Map<String, StorageNode> aliases) onStorage;
 
   /// Add a path inside the map at the given path (null: top level).
@@ -61,8 +63,23 @@ class StoragePane extends StatelessWidget {
   final ValueChanged<String> onDeleteAlias;
   final bool compact;
 
+  /// Width needed for three segments with a selected checkmark at normal text scale.
+  static const _tabWidthWithSelectionIcon = 300.0;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => Focus(skipTraversal: true, child: Builder(builder: _buildPane));
+
+  Widget _buildPane(BuildContext context) {
+    void focusPane() {
+      final focus = Focus.of(context);
+      if (!focus.hasFocus) focus.requestFocus();
+    }
+
+    void addAlias() {
+      focusPane();
+      onAddAlias();
+    }
+
     final c = context.colors;
     final unexposed = {
       for (final i in issues)
@@ -75,7 +92,7 @@ class StoragePane extends StatelessWidget {
           onPressed: () => onAdd(null),
           child: const Text('Add storage path'),
         ),
-        MenuItemButton(leadingIcon: const Icon(AppIcons.add, size: 18), onPressed: onAddAlias, child: const Text('Create an alias')),
+        MenuItemButton(leadingIcon: const Icon(AppIcons.add, size: 18), onPressed: addAlias, child: const Text('Create an alias')),
       ],
       builder: (context, controller, _) => IconButton(
         tooltip: 'Add storage path or alias',
@@ -83,48 +100,73 @@ class StoragePane extends StatelessWidget {
         icon: const Icon(AppIcons.add),
       ),
     );
-    final header = Row(
-      children: [
-        Expanded(
-          child: Semantics(header: true, child: Text('Storage', style: context.text.titleSmall)),
-        ),
-        if (!json) addMenu,
-        const SizedBox(width: 4),
-        SegmentedButton<bool>(
-          segments: const [
-            ButtonSegment(value: false, label: Text('Tree')),
-            ButtonSegment(value: true, label: Text('JSON')),
-          ],
-          selected: {json},
-          onSelectionChanged: (s) => onJson(s.first),
-          style: const ButtonStyle(visualDensity: VisualDensity.compact),
-        ),
-      ],
-    );
-    final body = json
-        ? _JsonEditor(storage: draft.storage, aliases: draft.aliases, warnPaths: unexposed, onChanged: onStorage, expand: !compact)
-        : Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (draft.aliases.isNotEmpty) ...[
-                _AliasesSection(aliases: draft.aliases, onEdit: onEditAlias, onDelete: onDeleteAlias),
-                const SizedBox(height: 8),
+    final header = LayoutBuilder(
+      builder: (context, constraints) {
+        final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Semantics(header: true, child: Text('Storage', style: context.text.titleSmall)),
+                if (tab == StoragePaneTab.tree)
+                  addMenu
+                else if (tab == StoragePaneTab.aliases)
+                  IconButton(tooltip: 'Create an alias', onPressed: addAlias, icon: const Icon(AppIcons.add)),
               ],
-              _Tree(
-                draft: draft,
-                unexposed: unexposed,
-                focusPath: focusPath,
-                selectedPath: selectedPath,
-                onSelectPath: onSelectPath,
-                searchController: searchController,
-                searchFocusNode: searchFocusNode,
-                onAdd: onAdd,
-                onAddPlaceholder: onAddPlaceholder,
-                onEdit: onEdit,
-                onDelete: onDelete,
+            ),
+            SegmentedButton<StoragePaneTab>(
+              segments: const [
+                ButtonSegment(value: StoragePaneTab.tree, label: Text('Tree')),
+                ButtonSegment(value: StoragePaneTab.json, label: Text('JSON')),
+                ButtonSegment(value: StoragePaneTab.aliases, label: Text('Aliases')),
+              ],
+              selected: {tab},
+              showSelectedIcon: constraints.maxWidth >= _tabWidthWithSelectionIcon * textScale,
+              onSelectionChanged: (s) {
+                focusPane();
+                onTabChanged(s.first);
+              },
+              style: const ButtonStyle(
+                visualDensity: VisualDensity.compact,
+                padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 8)),
               ),
-            ],
-          );
+            ),
+          ],
+        );
+      },
+    );
+    final body = switch (tab) {
+      StoragePaneTab.tree => _Tree(
+        draft: draft,
+        unexposed: unexposed,
+        focusPath: focusPath,
+        selectedPath: selectedPath,
+        onSelectPath: onSelectPath,
+        searchController: searchController,
+        searchFocusNode: searchFocusNode,
+        onAdd: onAdd,
+        onAddPlaceholder: onAddPlaceholder,
+        onEdit: onEdit,
+        onDelete: onDelete,
+      ),
+      StoragePaneTab.json => _JsonEditor(
+        storage: draft.storage,
+        aliases: draft.aliases,
+        warnPaths: unexposed,
+        onChanged: onStorage,
+        expand: !compact,
+      ),
+      StoragePaneTab.aliases => Focus(
+        autofocus: true,
+        skipTraversal: true,
+        child: _AliasesSection(aliases: draft.aliases, onAdd: addAlias, onEdit: onEditAlias, onDelete: onDeleteAlias),
+      ),
+    };
     return Container(
       decoration: BoxDecoration(
         color: c.surface,
@@ -136,7 +178,10 @@ class StoragePane extends StatelessWidget {
         children: [
           header,
           const SizedBox(height: 12),
-          if (compact || json) (compact ? body : Expanded(child: body)) else Expanded(child: SingleChildScrollView(child: body)),
+          if (compact || tab == StoragePaneTab.json)
+            (compact ? body : Expanded(child: body))
+          else
+            Expanded(child: SingleChildScrollView(child: body)),
         ],
       ),
     );
@@ -146,8 +191,9 @@ class StoragePane extends StatelessWidget {
 /// Lists top-level aliases (reusable types), each with its definition and
 /// edit/delete actions.
 class _AliasesSection extends StatelessWidget {
-  const _AliasesSection({required this.aliases, required this.onEdit, required this.onDelete});
+  const _AliasesSection({required this.aliases, required this.onAdd, required this.onEdit, required this.onDelete});
   final Map<String, StorageNode> aliases;
+  final VoidCallback onAdd;
   final ValueChanged<String> onEdit;
   final ValueChanged<String> onDelete;
 
@@ -163,8 +209,13 @@ class _AliasesSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Semantics(header: true, child: Text('Aliases', style: context.text.labelLarge)),
-          const SizedBox(height: 4),
+          if (aliases.isEmpty) ...[
+            Text('No aliases yet.', style: context.text.bodyMedium),
+            const SizedBox(height: 4),
+            Text('Create an alias to reuse a storage type.', style: context.text.bodySmall?.copyWith(color: c.onSurfaceVariant)),
+            const SizedBox(height: 8),
+            TextButton.icon(onPressed: onAdd, icon: const Icon(AppIcons.add, size: 18), label: const Text('Create an alias')),
+          ],
           for (final e in aliases.entries)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),

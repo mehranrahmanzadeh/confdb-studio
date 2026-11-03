@@ -87,7 +87,7 @@ class LintIssue {
   /// For a missing storage path: the leaf the quick fix would add.
   final StorageNode? suggestedLeaf;
 
-  /// Shorter wording for under the rule's own row, without the view prefix.
+  /// Shorter wording for under the rule's own card, without the view prefix.
   final String? detail;
 
   bool get isError => severity == LintSeverity.error;

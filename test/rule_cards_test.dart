@@ -1,14 +1,85 @@
 import 'package:confdb_studio/app.dart';
 import 'package:confdb_studio/data/fake/fake_repository.dart';
 import 'package:confdb_studio/data/fake/sample_data.dart';
+import 'package:confdb_studio/data/models.dart';
+import 'package:confdb_studio/domain/analysis.dart';
+import 'package:confdb_studio/screens/schema_editor/rule_cards.dart';
 import 'package:confdb_studio/state/app_controller.dart';
+import 'package:confdb_studio/theme/app_theme.dart';
 import 'package:confdb_studio/widgets/app_icons.dart';
+import 'package:confdb_studio/widgets/code_text.dart';
+import 'package:confdb_studio/widgets/common.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  const storage = StorageNode.root([
+    StorageNode(
+      key: 'device',
+      kind: StorageKind.map,
+      children: [
+        StorageNode(key: 'name', kind: StorageKind.string),
+        StorageNode(key: 'id', kind: StorageKind.string),
+      ],
+    ),
+    StorageNode(key: 'serial', kind: StorageKind.string),
+  ]);
+  const initialRules = [
+    ViewRule(request: 'device', storage: 'device', access: RuleAccess.readWrite),
+    ViewRule(request: 'serial', storage: 'serial', access: RuleAccess.read),
+  ];
+
+  Future<void> pumpCards(
+    WidgetTester tester, {
+    double width = 480,
+    double textScale = 1,
+    List<ViewRule> startingRules = initialRules,
+    List<LintIssue> issues = const [],
+    String? focusRule,
+    String? selectedStoragePath,
+    ValueChanged<String>? onStoragePathSelected,
+    void Function(String, StorageNode)? onQuickFix,
+  }) async {
+    tester.view.physicalSize = const Size(1000, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    var rules = startingRules;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildAppTheme(),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: width,
+              child: SingleChildScrollView(
+                child: StatefulBuilder(
+                  builder: (context, setState) => RuleCards(
+                    view: ViewDef(name: 'test-view', rules: rules),
+                    storage: storage,
+                    usage: const {},
+                    issues: issues,
+                    focusRule: focusRule,
+                    selectedStoragePath: selectedStoragePath,
+                    onStoragePathSelected: onStoragePathSelected ?? (_) {},
+                    onChanged: (updated) => setState(() => rules = updated),
+                    onQuickFix: onQuickFix ?? (_, _) {},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
   Future<void> openEditor(WidgetTester tester, {Size size = const Size(1440, 2400)}) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -46,6 +117,211 @@ void main() {
       await tester.pumpAndSettle();
     }
   }
+
+  testWidgets('each rule card places its path fields above the dropdowns', (tester) async {
+    for (final width in [360.0, 480.0, 800.0]) {
+      for (final textScale in [1.0, 1.3]) {
+        await pumpCards(tester, width: width, textScale: textScale);
+        expect(tester.takeException(), isNull, reason: 'width $width, text scale $textScale');
+        expect(find.byType(SectionCard), findsNWidgets(2));
+        expect(find.text('Request path'), findsNWidgets(2));
+        expect(find.text('Storage path'), findsNWidgets(2));
+        expect(find.text('Fields'), findsOneWidget);
+        expect(find.text('Access'), findsNWidgets(2));
+
+        final request = find.byWidgetPredicate(
+          (w) => w is TextField && w.decoration?.hintText == 'request' && w.controller?.text == 'device',
+        );
+        final card = find.ancestor(of: request, matching: find.byType(SectionCard));
+        final storageField = find.descendant(
+          of: card,
+          matching: find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'storage.path'),
+        );
+        final arrow = find.descendant(of: card, matching: find.byIcon(AppIcons.next));
+        final fields = find.descendant(of: card, matching: find.widgetWithText(OutlinedButton, 'All fields'));
+        final access = find.descendant(of: card, matching: find.widgetWithText(OutlinedButton, 'read-write'));
+        final requestRect = tester.getRect(request);
+        final storageRect = tester.getRect(storageField);
+        final arrowRect = tester.getRect(arrow);
+        final fieldsRect = tester.getRect(fields);
+        final accessRect = tester.getRect(access);
+        expect(storageRect.top, moreOrLessEquals(requestRect.top, epsilon: 0.1));
+        expect(requestRect.right, lessThanOrEqualTo(arrowRect.left));
+        expect(arrowRect.right, lessThanOrEqualTo(storageRect.left));
+        expect(arrowRect.center.dy, inInclusiveRange(requestRect.top, requestRect.bottom));
+        expect(fieldsRect.top, greaterThan(storageRect.bottom));
+        expect(accessRect.top, moreOrLessEquals(fieldsRect.top, epsilon: 0.1));
+        expect(fieldsRect.right, lessThan(accessRect.left));
+      }
+    }
+  });
+
+  testWidgets('card controls edit paths, fields and access and can delete a rule', (tester) async {
+    final selectedPaths = <String>[];
+    await pumpCards(tester, onStoragePathSelected: selectedPaths.add);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'read-write'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MenuItemButton, 'write'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<RuleCards>(find.byType(RuleCards)).view.rules.first.access, RuleAccess.write);
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'All fields'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(MenuItemButton, 'name'));
+    await tester.pumpAndSettle();
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    expect(tester.widget<RuleCards>(find.byType(RuleCards)).view.rules.first.content, [const ContentField(key: 'name')]);
+
+    final request = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'request').first;
+    await tester.enterText(request, 'renamed');
+    await tester.pumpAndSettle();
+    final storageField = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'storage.path').first;
+    await tester.enterText(storageField, 'device.name');
+    await tester.pumpAndSettle();
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pumpAndSettle();
+    final edited = tester.widget<RuleCards>(find.byType(RuleCards)).view.rules.first;
+    expect(edited.request, 'renamed');
+    expect(edited.storage, 'device.name');
+    expect(selectedPaths.last, 'device.name');
+    expect(find.text('Fields'), findsNothing);
+
+    await tester.tap(find.byTooltip('Delete rule renamed · Ctrl+Backspace'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<RuleCards>(find.byType(RuleCards)).view.rules.single.request, 'serial');
+  });
+
+  testWidgets('card controls have accessible rule and field labels', (tester) async {
+    final semantics = tester.ensureSemantics();
+    await pumpCards(tester);
+
+    expect(find.bySemanticsLabel(RegExp(r'^Rule device\b')), findsOneWidget);
+    expect(find.bySemanticsLabel('Reorder rule device'), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('Storage path for device')), findsOneWidget);
+    expect(find.bySemanticsLabel('Access for device: read-write'), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('selecting storage highlights the matching card', (tester) async {
+    await pumpCards(tester, selectedStoragePath: 'device.name');
+    final cards = tester.widgetList<SectionCard>(find.byType(SectionCard)).toList();
+    expect(cards.first.color, isNotNull);
+    expect(cards.last.color, isNull);
+  });
+
+  testWidgets('an empty view can add a focused rule card', (tester) async {
+    await pumpCards(tester, startingRules: const []);
+    expect(find.textContaining('No rules yet'), findsOneWidget);
+    await tester.tap(find.text('Add rule'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('No rules yet'), findsNothing);
+    final request = tester.widget<TextField>(find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'request'));
+    expect(request.focusNode!.hasFocus, isTrue);
+    expect(find.text('Request path'), findsOneWidget);
+    expect(find.text('Storage path'), findsOneWidget);
+  });
+
+  testWidgets('a card keeps inline errors and the storage quick fix', (tester) async {
+    const leaf = StorageNode(key: 'missing', kind: StorageKind.string);
+    String? fixedPath;
+    StorageNode? fixedLeaf;
+    await pumpCards(
+      tester,
+      width: 360,
+      textScale: 1.3,
+      focusRule: 'lost',
+      startingRules: const [ViewRule(request: 'lost', storage: 'device.missing', access: RuleAccess.read)],
+      issues: const [
+        LintIssue(
+          severity: LintSeverity.error,
+          message: 'Missing storage',
+          request: 'lost',
+          storagePath: 'device.missing',
+          suggestedLeaf: leaf,
+        ),
+      ],
+      onQuickFix: (path, node) {
+        fixedPath = path;
+        fixedLeaf = node;
+      },
+    );
+    expect(find.byWidgetPredicate((w) => w is CodeText && w.text.contains('does not exist in storage')), findsOneWidget);
+    final storageField = tester.widget<TextField>(
+      find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'storage.path'),
+    );
+    expect(storageField.focusNode!.hasFocus, isTrue);
+    expect(tester.widget<SectionCard>(find.byType(SectionCard)).color, isNotNull);
+    await tester.tap(find.text('Add device.missing (string) to storage'));
+    await tester.pumpAndSettle();
+    expect(fixedPath, 'device.missing');
+    expect(fixedLeaf, leaf);
+  });
+
+  testWidgets('lint navigation brings an off-screen rule card into view', (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero));
+    final admin = networkDraft.views.firstWhere((view) => view.name == 'wifi-admin');
+    final signal = admin.rules.firstWhere((rule) => rule.request == 'signal');
+    await repo.saveDraft(
+      networkDraft.copyWith(
+        views: [
+          for (final view in networkDraft.views)
+            if (view.name == admin.name) view.copyWith(rules: [...admin.rules.where((rule) => rule != signal), signal]) else view,
+        ],
+      ),
+    );
+    await tester.pumpWidget(
+      ConfdbStudioApp(
+        repository: repo,
+        initialRoute: const SchemaEditorRoute(networkId, view: 'wifi-admin'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final storageField = find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.hintText == 'storage.path' && w.controller?.text == 'wifi.signal',
+    );
+    final lintHeader = find.text('Lint');
+    expect(tester.getTopLeft(storageField).dy, greaterThan(tester.getTopLeft(lintHeader).dy));
+    await tester.tap(find.text('Go to rule').first);
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(storageField).focusNode!.hasFocus, isTrue);
+    final card = find.ancestor(of: storageField, matching: find.byType(SectionCard));
+    expect(tester.getBottomLeft(card).dy, lessThan(tester.getTopLeft(lintHeader).dy));
+  });
+
+  testWidgets('adding a rule brings the complete new card into view', (tester) async {
+    await openEditor(tester, size: const Size(1440, 900));
+    await tester.ensureVisible(find.text('Add rule'));
+    await tester.tap(find.text('Add rule'));
+    await tester.pumpAndSettle();
+
+    final request = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'request' && w.controller?.text == '');
+    expect(tester.widget<TextField>(request).focusNode!.hasFocus, isTrue);
+    final card = find.ancestor(of: request, matching: find.byType(SectionCard));
+    expect(tester.getBottomLeft(card).dy, lessThan(tester.getTopLeft(find.text('Lint')).dy));
+  });
+
+  testWidgets('the add-rule shortcut reveals the new card from the storage pane', (tester) async {
+    await openEditor(tester, size: const Size(1440, 900));
+    final search = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'Search storage paths');
+    await tester.tap(search);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyR, character: 'R');
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    final request = find.byWidgetPredicate((w) => w is TextField && w.decoration?.hintText == 'request' && w.controller?.text == '');
+    expect(tester.widget<TextField>(request).focusNode!.hasFocus, isTrue);
+    final card = find.ancestor(of: request, matching: find.byType(SectionCard));
+    expect(tester.getBottomLeft(card).dy, lessThan(tester.getTopLeft(find.text('Lint')).dy));
+  });
 
   testWidgets('storage path actions do not include view shortcuts', (tester) async {
     await openEditor(tester);
@@ -134,7 +410,7 @@ void main() {
     await tester.tapAt(const Offset(5, 5));
     await tester.pumpAndSettle();
 
-    // The rule stays a single row pointing at the whole map; only the
+    // The rule stays a single card pointing at the whole map; only the
     // dropdown's selection (its `content`) narrows what's exposed.
     expect(find.byWidgetPredicate((w) => w is TextField && w.controller?.text == 'device'), findsNWidgets(2));
     expect(find.widgetWithText(OutlinedButton, 'name'), findsOneWidget);
@@ -363,7 +639,7 @@ void main() {
     // drag start before moving, matching ReorderableListView's own tests.
     final gesture = await tester.startGesture(ssidHandle);
     await tester.pump(kPressTimeout);
-    // Step the drag down through each row so ReorderableListView re-evaluates
+    // Step the drag down through each card so ReorderableListView re-evaluates
     // the drop position after every intermediate move, not just the final one.
     final steps = (statusHandle.dy - ssidHandle.dy).abs() / 10;
     for (var s = 1; s <= steps; s++) {
