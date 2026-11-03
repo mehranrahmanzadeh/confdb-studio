@@ -1,7 +1,7 @@
 # Custodian snap for the integration suite.
 #
-# It plugs the view from upstream's signed test schema (developer1/network),
-# which provision.sh acknowledges, and implements the hooks the suite needs to
+# It plugs the view from our public signed schema, which provision.sh
+# acknowledges, and implements the hooks the suite needs to
 # drive snapd's custodian behaviour deterministically:
 #
 #   change-view-wifi-admin   rejects a well-known value, so the suite can check
@@ -24,6 +24,7 @@ grade: devel
 plugs:
   wifi-admin:
     interface: confdb
-    account: developer1
-    view: network/wifi-admin
+    # Substituted in a temporary copy by provision.sh.
+    account: TEST_ACCOUNT_ID
+    view: confdb-studio-integration/wifi-admin
     role: custodian

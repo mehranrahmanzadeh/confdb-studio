@@ -1,0 +1,100 @@
+type: confdb-schema
+authority-id: horOqtT3mHqGKjkijB1sIy7fEjZfhDai
+revision: 1
+account-id: horOqtT3mHqGKjkijB1sIy7fEjZfhDai
+name: confdb-studio-integration
+summary: Disposable Confdb Studio integration-test data
+timestamp: 2026-11-03T10:01:43Z
+views:
+  wifi-admin:
+    rules:
+      -
+        access: read-write
+        request: ssid
+        storage: wifi.ssid
+      -
+        access: write
+        request: password
+        storage: wifi.password
+      -
+        access: read
+        request: status
+        storage: wifi.status
+      -
+        access: read-write
+        request: private.{placeholder}
+        storage: wifi.private.{placeholder}
+body-length: 92
+sign-key-sha3-384: PiuphNK6cp7ripTW9vnEk8Xje0rP6YCIR-nASddyiqxLVdv-cmk1MMOEpRUvWA4X
+
+{
+  "storage": {
+    "schema": {
+      "wifi": {
+        "values": "any"
+      }
+    }
+  }
+}
+
+AcLBcwQAAQoAHRYhBGcXgGB5tcsOdIxHVnwBS2Vl5eUrBQJq6bEIAAoJEHwBS2Vl5eUrHCgP/Rh9
+QJj3IcyJ8Nt22kdqzSM/8UWoIWu+7qmsLeB6pKoqib1pWYUE9aV4KDnVreYAfUZeZkwW6042KnOd
+QvKHFA75j2IcaLTfsl3h+sPRuFsxlV0YQvC/n3HNihCaJm1Zt8rpi6DS88rdJQAmbJ4YP/rYXipX
+HViyKVwJN3UoR6/8t6AcGglV7iotsLc1Mgrsl4YkwEbZxzG628hEsynzOOgo37nuNMYWRV4J4IZL
+9lBctGnz4QJ8kyFS9jtftWwWeRcYdt8EmvFZ9vxRiHVl60GMZAKa76Br8sAaySvUj7YrCQ8KR1eR
+fiegzOyjYX1fEJ6XiXzAZHrkN1SHymzo0Ws6Dep7X2Qm0F5xWDsS/DPtryS4S/38Xee+N4vcLCrA
+qinC/7CYyabSOG8BcLHomONr9UPftGBXo7Zw79Xg9ctZ/m2A8ZEslMteoVEKfTeooAoGOmDgBy59
+7wcCmpjmH/9jkTT8RoiUAQ4VgXVu48NoYTBXxXi8Q8n1v46AVoL/4qoy2cV/J/lsASQ6xJpJqzDy
+yZ+7gKQyJsiOna7iY2o+hF1ZEUn+kZrCRJTYsAoMrStUrPexiHoKMGpqnbjZiz2oDyKBYmfYCaqd
+xeTRbKEdej6jncHawY/iz+oOikhy3ss9l1D5lxUwnB3AvvjgeeZvAGrS3n2+EnLDsWCWyyL1
+
+type: account-key
+authority-id: canonical
+public-key-sha3-384: PiuphNK6cp7ripTW9vnEk8Xje0rP6YCIR-nASddyiqxLVdv-cmk1MMOEpRUvWA4X
+account-id: horOqtT3mHqGKjkijB1sIy7fEjZfhDai
+name: ci-test-key
+since: 2026-11-03T10:00:10Z
+body-length: 717
+sign-key-sha3-384: BWDEoaqyr25nF5SNCvEv2v7QnM9QsfCc0PBMYD_i2NGSQ32EF2d4D0hqUel3m8ul
+
+AcbBTQRWhcGAARAA8LwWwiUVR6QgA9Ik28Pq+oP1wNVTHR8ugZQ7popZCWXAM/D7LcFldVpTUcTJ
+YhlHxvEFQgTQaqYbvx6MmQqg3+pSwvUnUIWKWouZ7cRg7d6xXMfvk2PisNkIKr4LdLkIazNLQHqu
+UTJBHrJ6X1qwGUXH/uI3ULrGGMm0hz8cDbn0DTKBHlR9wUVBGfybwdF19urUQgbtubo+WwYy0Hri
+xj9lk/Glk5BFE5Fcr800H5NZB+17SqfrV5uHdVdJvT+I8+MUtZZ2aZD7uuZV8EZzbh7fith4VlBU
+UO/D5Nb98y19wVxGxEJFE2F3n3eJnKyCYLUua6W3tTFqC7U551SAHrxRruPXFij6/kh9vNtF8Hoq
+Fhh17hw55hljiwgd2Z5GIwO2+I4v3Ipn3LVK9/fcxwBfHr1vAnoT4Y4VtxkoHbGTFlDtKnLQBJ8u
+H/DiVDU2FQIqPbiYql7dagRzYfaGzxgKTH8/eij1Tff3u8Mb9SdIWLlXE9tDg1igPsMjOoQVJ4Kt
+jkIPIYug7H5vHu5ZMyz9lildHOaHYXGgkPgSGDbLUsIES7FdPN7i4s0UEj8RAHkLEngJPu3El2JR
+n5WL8spUi9LDz+Urn3gw4+o5kWh+U0eIZWsMm4pmPa2Eow4r8aYxtbcEZA9lOsiu2u8a5bUJT4mL
+7sLYwn34TNQX1q0AEQEAAQ==
+
+AcLBUgQAAQoABgUCaumwqgAA+kEQAAmPr8OKxt26uFic2AM2edICxWBSf+8d9zF0MPQjXJkCLnF1
+YseOCpCeG5L8jWrA7S3CKE0U9kJCAeig9WLrtaeiTzL7SnTx8WsX37QQ3sfbtEihh9Xm5yuCLIv8
+2yPZO1kgkKVwcYaoQnh6FKm8qpCK+s9Myd1E0v+RVeN/IMaHwThodI2rFbjxtERnGhJUxMSSsKAE
+nNC0pVDTzpf4Mbmq0ZFuf5N1Z2y/YeJ5cd5yynPnLVEtCmO3QgelFm6LmBZtvXC9CsPkFEgz8R8J
+Aro5HZ/tyoOR85502y8lX8sLb5swD9lDURHPJsI3xsaLo+EcyoAE1sRKhUTK+VczA1gJaMGo7ANd
+PYnKZZBhOVH7j4NlhnbZVkYhtYIWT/p17/oztt0T7rGME/HlgIbfsSiq+WPJXTSP2+e9jVcT9Ncd
+yhVa8pzu/4R+1Zn2NPygRRAHx9PJmlIADHdWYk1qwAzD4wbLp5d1F7NafOyON7dOzxly1q5n8pxI
+ZEd9cZldxgG+u8Ir3b5N42Iq1oXYu52oEkm7Je+NB9wI3evoFUcsYf/t+TGYqUCRo/7M8ipeInIW
+md5YomiLBrX2DvmQ4FzqZT2qTMpp47A9Y2yOJi5pcsx0BBZAqzZTfK7J5lZ5j1R8fuWZ3n5CVrUW
+FXNNCpl1sAQrevHzAiYRim8ijfxl
+
+type: account
+authority-id: canonical
+account-id: horOqtT3mHqGKjkijB1sIy7fEjZfhDai
+display-name: Mehran Rahmanzadeh
+timestamp: 2026-10-13T10:58:07.639115Z
+username: mrhnz
+validation: unproven
+sign-key-sha3-384: BWDEoaqyr25nF5SNCvEv2v7QnM9QsfCc0PBMYD_i2NGSQ32EF2d4D0hqUel3m8ul
+
+AcLBUgQAAQoABgUCas4OvwAAWXgQAJX8DvUgVDSN6eOWfnExIYUpK53CWoo+bWEaixzmdke6i+1S
+IpYdmtE2AXURiTgoQpUsFgPeKNiKaeQ6vzo0WDpD+I5ExszeFaMuli2xTseNv6xAdzbV8qCOUQDL
+xxlwceKgWMQeYDg5ZNRPYaOSt75C8EueNGAfrC/njE0rMvaVXLF9X3b0Xo2HkMlNdkcOi9r6lw+G
+DYfhZT40BiTk6H3bfShbF/6Mj4Jw9OBNqjRAc0McmDALpwDMMrB/lJvqZ/p+oQ0g0ZGwRid1Q1vG
+7uylo7GxRMdDEHGhNsYRkpCC38gUApXuphchbAfmaQkklUE5YIJw66P9B5SzcxnNkcGSUitS6BKW
++g0hZTih3OI+8CBJxty4NT3XLLOEUz07VwybOkjCtqxSs+lzv74RWx4rmeBw9V1b4gVuM9fMzKAb
+LBMKfR421L9XZJJZQNItZzqqAox0sAezmGKSBxrJdyQ6HjEGYiOnJKgxL5dbAlMcc+Ue8v56FCLM
+sFmzR5Q988Bck8XIsoNj9ljF+MSp3qT+qYf8wLaKSLETcz0LdSpZKTj3tf2xnRUf+XqChkgTvu7d
+a/1HndJAglPTZFsKhLx9gFn7BWVdWfrZmbR8C6qpLlBX3NsUrt5DmOw2OoqV8MWQkdfBNLj6D+Or
+tBzsn15ZwPJJooH3iQiXHKmixOg9

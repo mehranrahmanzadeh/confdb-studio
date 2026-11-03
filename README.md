@@ -93,30 +93,50 @@ and the writable ones refuse to run anywhere that isn't disposable — see
 | --- | --- | --- |
 | `snapd_readonly_test.dart` | any snapd | Smoke test; safe on your own machine (a view read may show a polkit prompt) |
 | `snapd_builtin_test.dart` | a disposable machine | Schema parsing, snap/connection listing, error semantics, drafts — against the `system/validation-sets` schema snapd compiles in, so no credentials or signed fixtures are needed |
-| `snapd_custodian_test.dart` | a disposable machine **and** a test-keys snapd | Reads, writes, unsets, custodian rejection and rollback, write-only values, connect/disconnect |
+| `snapd_custodian_test.dart` | a disposable machine with the signed fixture and custodian | Reads, writes, unsets, custodian rejection and rollback, write-only values, connect/disconnect |
 
-The custodian suite needs a signed `confdb-schema`, and snapd only trusts a
-signing key that was compiled into it — there is no runtime way to add one. So
-provisioning builds snapd with `-tags withtestkeys`, which takes several
-minutes and must never be done to a machine you care about.
+Both suites use stock snapd. The custodian suite acknowledges the committed
+public `confdb-studio-integration.assert` chain, signed with a Store-registered
+key, and installs a local fixture snap. It does not build snapd, alter its trust
+roots, import private keys, or publish anything to the Store. The test account
+is read from the signed assertion rather than configured separately.
 
 Run everything in a throwaway LXD **virtual machine** (not a container, which
 would share your own snapd):
 
 ```sh
 scripts/integration/run-lxd.sh              # stock snapd
-scripts/integration/run-lxd.sh --test-keys  # + signed fixture and custodian
+scripts/integration/run-lxd.sh --custodian  # + signed fixture and custodian
 ```
 
-The `snapd integration` GitHub workflow runs both suites on pull requests and
-nightly. Manual runs can skip the test-keys suite. To run the suites by hand on
-a machine you've already provisioned:
+The `snapd integration` GitHub workflow runs both suites on pull requests, main
+pushes, and nightly. Manual runs can skip the custodian suite. No GitHub signing
+secret or account/key variables are needed, including for fork PRs.
+To run the suites by hand on a machine you've already provisioned:
 
 ```sh
-sudo scripts/integration/provision.sh --kind lxd-vm [--test-keys]
+sudo scripts/integration/provision.sh --kind lxd-vm [--custodian]
 sudo -E env "PATH=$PATH" flutter test test/integration \
-  --dart-define=SNAPD_IT=true [--dart-define=SNAPD_IT_TEST_KEYS=true]
+  --dart-define=SNAPD_IT=true [--dart-define=SNAPD_IT_CUSTODIAN=true]
 ```
 
 They run as root because snapd only lets an administrator read or write confdb
 values and nothing can answer a polkit prompt in a headless environment.
+
+#### Regenerating the public signed fixture
+
+After changing `scripts/integration/fixtures/confdb-studio-integration.json`,
+sign it locally using a key already registered with the Snap Store. Install
+`jq` if needed, find the key SHA with `snap keys`, then run **without sudo**:
+
+```sh
+TEST_ACCOUNT_ID='<account-id>' TEST_KEY_SHA3='<key-sha3-384>' \
+  bash scripts/integration/sign-fixture.sh
+```
+
+The helper checks the key belongs to the account, signs through the existing
+local keyring, and includes the public account/key assertion chain. Review and
+commit the generated `.assert` file with the JSON template. The normal unit
+suite checks that they match; disposable integration runs validate the
+signature chain through snapd. Never commit a private key or expose one to
+PR-controlled code.

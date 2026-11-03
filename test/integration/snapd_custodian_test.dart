@@ -2,13 +2,13 @@
 // writing values through a view, custodian rejection and rollback, write-only
 // values, and connecting/disconnecting a custodian snap.
 //
-// This needs a signed confdb-schema, and snapd will only trust one if it was
-// built with test keys — there is no runtime way to add a trusted signing key.
-// So the machine has to be provisioned with:
+// This uses a public confdb-schema signed by a Store-registered key. Stock
+// snapd validates the committed assertion chain; no private key is needed.
+// Provision the machine with:
 //
-//   sudo scripts/integration/provision.sh --kind lxd-vm --test-keys
+//   sudo scripts/integration/provision.sh --kind lxd-vm --custodian
 //   sudo flutter test test/integration \
-//     --dart-define=SNAPD_IT=true --dart-define=SNAPD_IT_TEST_KEYS=true
+//     --dart-define=SNAPD_IT=true --dart-define=SNAPD_IT_CUSTODIAN=true
 //
 // Tests run serially and reset the fixture's values between them, because they
 // share one confdb on one machine.
@@ -26,9 +26,9 @@ import 'support/fixtures.dart';
 
 void main() async {
   var skip = await integrationSkipReason();
-  skip ??= testKeysEnabled
+  skip ??= custodianEnabled
       ? null
-      : 'Needs the signed fixture schema. Provision with --test-keys and run with --dart-define=SNAPD_IT_TEST_KEYS=true.';
+      : 'Needs the signed fixture schema. Provision with --custodian and run with --dart-define=SNAPD_IT_CUSTODIAN=true.';
 
   for (final tc in transportCases) {
     group(tc.name, skip: skip, () {
@@ -61,7 +61,7 @@ void main() async {
         expect(
           schema,
           isNotNull,
-          reason: 'provision.sh --test-keys should have acked ${fixtureSchema.path}; found ${schemas.map((s) => s.id.path).toList()}',
+          reason: 'provision.sh --custodian should have acked ${fixtureSchema.path}; found ${schemas.map((s) => s.id.path).toList()}',
         );
         expect(schema!.builtIn, isFalse);
         expect(schema.signedBy, isNotNull);

@@ -4,16 +4,16 @@ name: snapd integration
 # snaps and write confdb values, so they only ever run on a GitHub-hosted
 # runner (thrown away after the job) — never on a self-hosted one.
 #
-# Run both suites on pull requests and nightly. Manual runs can skip the
-# test-keys job, which builds snapd from source.
+# Run both suites on pull requests, main pushes and nightly using stock snapd.
+# PR jobs consume only public signed assertions, never a private signing key.
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
     inputs:
-      test-keys:
-        description: Build a test-keys snapd and run the custodian suite too
+      custodian:
+        description: Run the custodian suite with the public signed fixture
         type: boolean
         default: true
   schedule:
@@ -65,10 +65,10 @@ jobs:
         run: scripts/integration/diagnostics.sh
 
   custodian:
-    name: Test-keys snapd
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule' || inputs.test-keys
+    name: Custodian (stock snapd)
+    if: github.event_name != 'workflow_dispatch' || inputs.custodian
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -80,18 +80,16 @@ jobs:
 
       - run: flutter pub get
 
-      - name: Provision with test keys
-        # Builds snapd with -tags withtestkeys, acks the signed fixture schema
-        # and installs the custodian fixture snap.
+      - name: Provision with custodian
         run: |
           sudo env "GITHUB_ACTIONS=$GITHUB_ACTIONS" "CI=$CI" \
             "RUNNER_ENVIRONMENT=$RUNNER_ENVIRONMENT" \
-            scripts/integration/provision.sh --kind github --test-keys
+            scripts/integration/provision.sh --kind github --custodian
 
       - name: Test
         run: |
           sudo -E env "PATH=$PATH" flutter test test/integration \
-            --dart-define=SNAPD_IT=true --dart-define=SNAPD_IT_TEST_KEYS=true
+            --dart-define=SNAPD_IT=true --dart-define=SNAPD_IT_CUSTODIAN=true
 
       - name: Diagnostics
         if: failure()

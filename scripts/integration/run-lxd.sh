@@ -2,7 +2,7 @@
 # Runs the snapd integration suite in a throwaway LXD virtual machine.
 #
 #   scripts/integration/run-lxd.sh            # stock snapd, built-in schema
-#   scripts/integration/run-lxd.sh --test-keys # + signed fixture and custodian
+#   scripts/integration/run-lxd.sh --custodian # + signed fixture and custodian
 #
 # A *virtual machine*, not a container: an LXD container shares the host's
 # snapd, so the suite would be mutating your own machine's configuration.
@@ -14,14 +14,14 @@ set -euo pipefail
 IMAGE=${IMAGE:-ubuntu:24.04}
 NAME=${NAME:-confdb-it-$(date +%s)}
 FLUTTER_CHANNEL=${FLUTTER_CHANNEL:-stable}
-TEST_KEYS=false
+CUSTODIAN=false
 KEEP=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --test-keys) TEST_KEYS=true; shift ;;
+    --custodian) CUSTODIAN=true; shift ;;
     --keep) KEEP=true; shift ;;
-    *) echo "usage: $0 [--test-keys] [--keep]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--custodian] [--keep]" >&2; exit 2 ;;
   esac
 done
 
@@ -66,24 +66,20 @@ lxc exec "$NAME" -- bash -lc 'cd /root/confdb_studio && PATH=$PATH:/snap/bin flu
 
 say "Provisioning snapd"
 provision_args=(--kind lxd-vm)
-[ "$TEST_KEYS" = true ] && provision_args+=(--test-keys)
+[ "$CUSTODIAN" = true ] && provision_args+=(--custodian)
 # Match the relative invocation used by the GitHub workflow.
 lxc exec "$NAME" --cwd /root/confdb_studio -- scripts/integration/provision.sh "${provision_args[@]}"
 
 say "Running the suite"
 defines=(--dart-define=SNAPD_IT=true)
 target=test/integration/snapd_builtin_test.dart
-# Re-exec is only disabled for a test-keys build: with stock snapd it would
-# force the (older) distro binary instead of the snapd snap.
-env_prefix=
-if [ "$TEST_KEYS" = true ]; then
-  defines+=(--dart-define=SNAPD_IT_TEST_KEYS=true)
+if [ "$CUSTODIAN" = true ]; then
+  defines+=(--dart-define=SNAPD_IT_CUSTODIAN=true)
   target=test/integration
-  env_prefix='SNAP_REEXEC=0'
 fi
 
 # Already root inside the VM, so no sudo and no polkit prompt.
-if lxc exec "$NAME" -- bash -lc "cd /root/confdb_studio && PATH=\$PATH:/snap/bin $env_prefix flutter test $target ${defines[*]}"; then
+if lxc exec "$NAME" -- bash -lc "cd /root/confdb_studio && PATH=\$PATH:/snap/bin flutter test $target ${defines[*]}"; then
   say "Passed"
 else
   status=$?

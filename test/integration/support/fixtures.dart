@@ -6,6 +6,7 @@ import 'package:confdb_studio/data/drafts/file_draft_store.dart';
 import 'package:confdb_studio/data/models.dart';
 import 'package:confdb_studio/data/snapd/snapd_repository.dart';
 import 'package:confdb_studio/data/snapd/transport.dart';
+import 'package:confdb_studio/domain/schema_codec.dart';
 
 import 'environment.dart';
 
@@ -14,17 +15,18 @@ import 'environment.dart';
 /// everything that only reads *schemas* (as opposed to values).
 const builtInSchema = SchemaId('system', 'validation-sets');
 
-/// Upstream's test fixture, acknowledged by `provision.sh --test-keys`.
-const fixtureSchema = SchemaId('developer1', 'network');
-const fixtureView = ViewRef('developer1', 'network', 'wifi-admin');
+/// Public, Store-trusted fixture, acknowledged by `provision.sh --custodian`.
+const fixtureAssertionPath = 'scripts/integration/fixtures/confdb-studio-integration.assert';
+final fixtureSchema = parseAssertion(File(fixtureAssertionPath).readAsStringSync()).id;
+final fixtureView = ViewRef(fixtureSchema.account, fixtureSchema.name, 'wifi-admin');
 const fixtureCustodian = 'confdb-studio-custodian';
 
 /// Every concrete path the custodian suite writes, so it can put the fixture
 /// back the way it found it between tests.
 const fixtureWritablePaths = ['ssid', 'password', 'private.team', 'private.count', 'private.on'];
 
-/// Whether the fixtures that need a test-keys snapd were provisioned.
-const testKeysEnabled = bool.fromEnvironment('SNAPD_IT_TEST_KEYS');
+/// Whether the signed schema and custodian fixture were provisioned.
+const custodianEnabled = bool.fromEnvironment('SNAPD_IT_CUSTODIAN');
 
 /// A transport, named, plus how to build it.
 class TransportCase {

@@ -1,0 +1,41 @@
+{
+  "type": "confdb-schema",
+  "name": "confdb-studio-integration",
+  "revision": "1",
+  "summary": "Disposable Confdb Studio integration-test data",
+  "views": {
+    "wifi-admin": {
+      "rules": [
+        {
+          "request": "ssid",
+          "storage": "wifi.ssid",
+          "access": "read-write"
+        },
+        {
+          "request": "password",
+          "storage": "wifi.password",
+          "access": "write"
+        },
+        {
+          "request": "status",
+          "storage": "wifi.status",
+          "access": "read"
+        },
+        {
+          "request": "private.{placeholder}",
+          "storage": "wifi.private.{placeholder}",
+          "access": "read-write"
+        }
+      ]
+    }
+  },
+  "body": {
+    "storage": {
+      "schema": {
+        "wifi": {
+          "values": "any"
+        }
+      }
+    }
+  }
+}
