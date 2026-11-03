@@ -77,7 +77,52 @@ flutter analyze
 flutter test                                    # unit + widget tests
 flutter test test/visual --update-goldens --dart-define=SCREENSHOTS=/abs/dir
                                                 # renders 39 screen states to PNGs
-flutter test test/integration --dart-define=SNAPD_IT=true
-                                                # read-only checks against local snapd
-                                                # (a view read may show a polkit prompt)
 ```
+
+### Real snapd integration tests
+
+The destructive repository suite runs **only in a disposable LXD VM**, not
+against the host's snapd:
+
+```sh
+# Requires an initialized LXD with VM support (/dev/kvm), an Ubuntu image
+# remote, and permission to use lxc. No host Flutter/Go SDK is needed.
+./scripts/test_snapd_integration.sh
+./scripts/test_snapd_integration.sh --keep       # retain the VM for debugging
+./scripts/test_snapd_integration.sh --snapd-ref <commit-or-branch>
+```
+
+The runner uploads the current working tree, creates an Ubuntu 24.04 VM
+(4 CPUs, 8 GiB RAM, 35 GiB disk), builds snapd's Debian package from the pinned
+source revision with `DEB_BUILD_OPTIONS="nocheck testkeys parallel=4"`, and
+installs it along with `core24` and Flutter 3.47.7. `nocheck` skips snapd's own
+unit suite, not Studio's integration tests. Internet access is required for
+packages, SDKs and the base snap. Test-key trust, unprotected signing keys and
+system changes never leave the VM. Do not install these snapd packages on a
+normal machine.
+
+Both Unix-socket and `snap debug api` transports exercise system status and
+feature enablement, accounts and schema decoding, draft persistence/import,
+typed values and unsets, access rules, secret masking, ephemeral load hooks,
+custodian rejection and rollback, observer hooks, snap inventory/connections,
+key creation/export, signing, revision advancement and acknowledgement.
+Writes and changes must actually complete; fixture/setup errors fail the run.
+Tests are skipped during ordinary `flutter test`; the VM runner enables them
+with `SNAPD_IT=true` and a VM-only safety marker.
+
+Store authentication and publishing use a deterministic `StoreAuthClient`,
+while the real `SnapStoreClient` still performs serialization and session
+persistence. A command adapter substitutes only `snap known --remote` with
+test-root-signed assertion fixtures; signing, local assertion lookup and
+acknowledgement use real snap binaries and snapd. This covers login/2FA/cancel/
+logout, key registration, Store key lookup, push-before-ack ordering, rejected
+pushes, and installation without credentials or publishing to a live account.
+It does **not** validate the public Store service or Rust authentication FFI.
+The suite runs as root in the VM; desktop polkit interaction is not covered.
+
+The `snapd integration` GitHub workflow invokes the same runner on pull
+requests and pushes to `main` (also manually). Logs, exact snapd revision,
+change listing and JSON test events are uploaded even on failure. Locally,
+diagnostics go to `build/snapd-integration/`; override with `SNAPD_IT_OUTPUT`.
+The VM is deleted on exit unless `--keep` is passed. The retained VM name and
+cleanup command are printed. Override Flutter with `FLUTTER_VERSION`.

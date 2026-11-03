@@ -1,0 +1,22 @@
+name: studio-custodian
+version: '1'
+base: core24
+confinement: strict
+plugs:
+  admin:
+    interface: confdb
+    account: developer1
+    view: studio/admin
+    role: custodian
+  observer:
+    interface: confdb
+    account: developer1
+    view: studio/observer
+  reader:
+    interface: confdb
+    account: developer1
+    view: studio/observer
+    role: custodian
+apps:
+  shell:
+    command: bin/shell
