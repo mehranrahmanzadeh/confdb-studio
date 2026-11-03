@@ -20,6 +20,7 @@ git remote add origin https://github.com/canonical/snapd.git
 git fetch --depth 1 origin "${SNAPD_REF:?}"
 git checkout --detach FETCH_HEAD
 git rev-parse HEAD | tee /var/tmp/confdb-results/snapd-revision.txt
+echo "$SNAPD_REF" >/var/tmp/confdb-results/snapd-ref.txt
 ln -s packaging/ubuntu-16.04 debian
 mk-build-deps --install --remove --tool 'apt-get -y --no-install-recommends' debian/control
 ./get-deps.sh

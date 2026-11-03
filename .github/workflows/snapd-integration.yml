@@ -43,8 +43,12 @@ jobs:
             -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
           echo "FORWARD chain after:"; sudo iptables -w -S FORWARD
       - name: Build snapd with test keys and test in a fresh VM
+        env:
+          # Keeps the snapd release lookup off the unauthenticated rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           sudo env SNAPD_IT_OUTPUT="$RUNNER_TEMP/snapd-integration" \
+            GITHUB_TOKEN="$GITHUB_TOKEN" \
             bash scripts/test_snapd_integration.sh
       - name: Upload diagnostics
         if: always()

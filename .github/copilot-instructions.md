@@ -85,7 +85,8 @@ flutter test test/visual --update-goldens --dart-define=SCREENSHOTS=/abs/dir
 ```
 
 Integration tests are destructive and opt-in. Run them only through the
-disposable LXD VM runner, which builds pinned snapd source with test keys:
+disposable LXD VM runner, which builds snapd's latest stable release from
+source with test keys:
 
 ```sh
 ./scripts/test_snapd_integration.sh

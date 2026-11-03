@@ -89,11 +89,20 @@ against the host's snapd:
 # remote, and permission to use lxc. No host Flutter/Go SDK is needed.
 ./scripts/test_snapd_integration.sh
 ./scripts/test_snapd_integration.sh --keep       # retain the VM for debugging
-./scripts/test_snapd_integration.sh --snapd-ref <commit-or-branch>
+./scripts/test_snapd_integration.sh --snapd-ref <tag-commit-or-branch>
 ```
 
+By default the suite builds snapd's **latest stable release**, resolved at run
+time from the GitHub releases API (currently 2.78), so it tracks new snapd
+releases without a code change. snapd's tag list is not version-ordered and it
+has no `main` branch, so the releases API is the only reliable source; if it
+cannot be reached the run stops rather than silently falling back to an older
+revision. Pass `--snapd-ref` to build a specific tag, commit or branch (for
+example `master` to check upcoming snapd against Studio). The resolved ref and
+its exact commit are recorded in `snapd-ref.txt` and `snapd-revision.txt`.
+
 The runner uploads the current working tree, creates an Ubuntu 24.04 VM
-(4 CPUs, 8 GiB RAM, 35 GiB disk), builds snapd's Debian package from the pinned
+(4 CPUs, 8 GiB RAM, 35 GiB disk), builds snapd's Debian package from that
 source revision with `DEB_BUILD_OPTIONS="nocheck testkeys parallel=4"`, and
 installs it along with `core24` and Flutter 3.47.7. `nocheck` skips snapd's own
 unit suite, not Studio's integration tests. Internet access is required for
