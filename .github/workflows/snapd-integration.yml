@@ -19,42 +19,33 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
-      - name: Free disk space for the VM image
+      - name: Free disk space for the snapd and Flutter builds
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
             /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
           df -h /
-      - name: Set up LXD
-        run: |
-          test -c /dev/kvm
-          if ! snap list lxd; then
-            sudo snap install lxd
-          fi
-          sudo lxd waitready
-          # A dir pool keeps the VM image sparse; sized pools can be too small.
-          sudo lxd init --auto --storage-backend dir || sudo lxd init --auto
-          sudo lxc storage list
-          # Docker sets the FORWARD policy to DROP on hosted runners, which
-          # silently blackholes LXD guest traffic (IPv4 connects time out).
-          # Allow only bridge egress and its replies, not all forwarded traffic.
-          echo "FORWARD chain before:"; sudo iptables -w -S FORWARD
-          sudo iptables -w -I FORWARD -i lxdbr0 -j ACCEPT
-          sudo iptables -w -I FORWARD -o lxdbr0 \
-            -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-          echo "FORWARD chain after:"; sudo iptables -w -S FORWARD
-      - name: Build snapd with test keys and test in a fresh VM
+      - name: Build snapd with test keys and run the suite
         env:
           # Keeps the snapd release lookup off the unauthenticated rate limit.
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          sudo env SNAPD_IT_OUTPUT="$RUNNER_TEMP/snapd-integration" \
-            GITHUB_TOKEN="$GITHUB_TOKEN" \
-            bash scripts/test_snapd_integration.sh
+          # The runner is ephemeral, so the suite replaces its snapd in place.
+          sudo env CONFDB_IT_DESTRUCTIVE=1 GITHUB_TOKEN="$GITHUB_TOKEN" \
+            bash scripts/integration/run_suite.sh
+      - name: Collect diagnostics
+        if: always()
+        run: |
+          # The results directory is root-owned, so redirect inside sudo and
+          # make it readable for the upload step.
+          sudo mkdir -p /var/tmp/confdb-results
+          sudo sh -c 'journalctl -u snapd --no-pager \
+            >/var/tmp/confdb-results/snapd-journal.log 2>&1' || true
+          sudo chmod -R a+rX /var/tmp/confdb-results || true
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: snapd-integration
-          path: ${{ runner.temp }}/snapd-integration
+          path: /var/tmp/confdb-results
           if-no-files-found: warn
           retention-days: 7

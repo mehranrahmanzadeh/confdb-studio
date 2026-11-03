@@ -7,25 +7,6 @@ usage() {
     echo "Builds snapd's latest stable release unless --snapd-ref overrides it."
 }
 
-# snapd's latest stable release, as the releases API reports it. Its tag list
-# is not version-ordered (recent tags include 'ppa' and '3.9.9-0sdhd5') and it
-# has no 'main' branch, so neither tag order nor a branch name is usable here.
-latest_snapd_release() {
-    local auth=() tag
-    [[ -n "${GITHUB_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
-    tag="$(curl -fsS --retry 3 --retry-delay 2 \
-        -H 'Accept: application/vnd.github+json' "${auth[@]}" \
-        https://api.github.com/repos/canonical/snapd/releases/latest |
-        sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)" || true
-    # Guards against a rate-limited or changed response silently selecting junk.
-    if [[ ! "$tag" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-        echo "Could not resolve snapd's latest release (got '${tag:-<nothing>}')." >&2
-        echo "Retry, or pick one explicitly with --snapd-ref <tag-or-commit>." >&2
-        return 1
-    fi
-    echo "$tag"
-}
-
 keep=false
 snapd_ref=
 while (($#)); do
@@ -38,11 +19,6 @@ while (($#)); do
 done
 
 command -v lxc >/dev/null
-command -v curl >/dev/null
-if [[ -z "$snapd_ref" ]]; then
-    snapd_ref="$(latest_snapd_release)"
-    echo "Latest stable snapd release: $snapd_ref"
-fi
 root="$(cd "$(dirname "$0")/.." && pwd)"
 output="${SNAPD_IT_OUTPUT:-$root/build/snapd-integration}"
 mkdir -p "$output"
@@ -99,6 +75,8 @@ lxc file push "$archive" "$vm/var/tmp/confdb-source.tar.gz"
 lxc exec "$vm" -- tar -xzf /var/tmp/confdb-source.tar.gz -C /opt/confdb-studio
 # The guest script refuses to run without this marker and a VM hypervisor.
 lxc exec "$vm" -- touch /run/confdb-integration-vm
+# An empty SNAPD_REF makes the suite resolve snapd's latest stable release.
 lxc exec "$vm" -- env SNAPD_REF="$snapd_ref" \
     FLUTTER_VERSION="${FLUTTER_VERSION:-3.47.7}" \
-    bash /opt/confdb-studio/scripts/integration/guest.sh
+    GITHUB_TOKEN="${GITHUB_TOKEN:-}" \
+    bash /opt/confdb-studio/scripts/integration/run_suite.sh

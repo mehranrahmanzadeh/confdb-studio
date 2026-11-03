@@ -81,8 +81,11 @@ flutter test test/visual --update-goldens --dart-define=SCREENSHOTS=/abs/dir
 
 ### Real snapd integration tests
 
-The destructive repository suite runs **only in a disposable LXD VM**, not
-against the host's snapd:
+This suite **replaces the machine's snapd**, so it only runs where the whole
+machine is disposable. `scripts/integration/run_suite.sh` does the work in
+place; there are two ways to reach it.
+
+**Locally, in a throwaway LXD VM** (your host is never modified):
 
 ```sh
 # Requires an initialized LXD with VM support (/dev/kvm), an Ubuntu image
@@ -91,6 +94,13 @@ against the host's snapd:
 ./scripts/test_snapd_integration.sh --keep       # retain the VM for debugging
 ./scripts/test_snapd_integration.sh --snapd-ref <tag-commit-or-branch>
 ```
+
+**In CI**, the `snapd integration` workflow runs `run_suite.sh` directly on the
+ephemeral GitHub runner, with `CONFDB_IT_DESTRUCTIVE=1`. No VM is nested inside
+the runner, so the job needs no KVM, LXD or firewall setup. Outside those two
+cases the script refuses to run: it requires either the VM marker that
+`test_snapd_integration.sh` creates or that explicit opt-in, so it cannot
+destroy a workstation's snapd by accident.
 
 By default the suite builds snapd's **latest stable release**, resolved at run
 time from the GitHub releases API (currently 2.78), so it tracks new snapd
@@ -101,20 +111,19 @@ revision. Pass `--snapd-ref` to build a specific tag, commit or branch (for
 example `master` to check upcoming snapd against Studio). The resolved ref and
 its exact commit are recorded in `snapd-ref.txt` and `snapd-revision.txt`.
 
-The runner uploads the current working tree, creates an Ubuntu 24.04 VM
-(4 CPUs, 8 GiB RAM, 35 GiB disk), builds snapd's Debian package from that
-source revision with `DEB_BUILD_OPTIONS="nocheck testkeys parallel=4"`, and
+The local runner uploads the current working tree and creates an Ubuntu 24.04
+VM (4 CPUs, 8 GiB RAM, 35 GiB disk). Either way the suite builds snapd's Debian
+package from that source revision with `DEB_BUILD_OPTIONS="nocheck testkeys parallel=4"`, and
 installs it along with `core24` and Flutter 3.47.7. `nocheck` skips snapd's own
 unit suite, not Studio's integration tests. Internet access is required for
 packages, SDKs and the base snap. Test-key trust, unprotected signing keys and
-system changes never leave the VM. Do not install these snapd packages on a
-normal machine.
+system changes never leave the disposable machine. Do not install these snapd
+packages on a normal machine.
 
-The workflow permits IPv4 egress from `lxdbr0` and established replies through
-the runner's forwarding firewall, avoiding Docker's default forwarding drop.
-The local runner does not change host firewall rules; if Docker or another
-firewall blocks VM internet access, allow equivalent bridge traffic locally.
-APT repository update failures stop setup immediately.
+APT repository update failures stop setup immediately. If Docker or another
+firewall is active locally, its default `FORWARD` drop can blackhole the LXD
+VM's traffic; the local runner deliberately does not edit host firewall rules,
+so allow bridge traffic yourself if that happens.
 
 Both Unix-socket and `snap debug api` transports exercise system status and
 feature enablement, accounts and schema decoding, draft persistence/import,
@@ -122,8 +131,8 @@ typed values and unsets, access rules, secret masking, ephemeral load hooks,
 custodian rejection and rollback, observer hooks, snap inventory/connections,
 key creation/export, signing, revision advancement and acknowledgement.
 Writes and changes must actually complete; fixture/setup errors fail the run.
-Tests are skipped during ordinary `flutter test`; the VM runner enables them
-with `SNAPD_IT=true` and a VM-only safety marker.
+Tests are skipped during ordinary `flutter test`; `run_suite.sh` enables them
+with `SNAPD_IT=true` and the disposable-machine safety marker.
 
 Store authentication and publishing use a deterministic `StoreAuthClient`,
 while the real `SnapStoreClient` still performs serialization and session
@@ -135,9 +144,9 @@ pushes, and installation without credentials or publishing to a live account.
 It does **not** validate the public Store service or Rust authentication FFI.
 The suite runs as root in the VM; desktop polkit interaction is not covered.
 
-The `snapd integration` GitHub workflow invokes the same runner on pull
-requests and pushes to `main` (also manually). Logs, exact snapd revision,
-change listing and JSON test events are uploaded even on failure. Locally,
-diagnostics go to `build/snapd-integration/`; override with `SNAPD_IT_OUTPUT`.
+The `snapd integration` workflow runs on pull requests and pushes to `main`
+(also manually). Logs, exact snapd revision, change listing and JSON test
+events are uploaded even on failure. Locally, diagnostics go to
+`build/snapd-integration/`; override with `SNAPD_IT_OUTPUT`.
 The VM is deleted on exit unless `--keep` is passed. The retained VM name and
 cleanup command are printed. Override Flutter with `FLUTTER_VERSION`.

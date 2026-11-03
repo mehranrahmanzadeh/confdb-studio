@@ -84,15 +84,17 @@ render screenshots only when `SCREENSHOTS` is set:
 flutter test test/visual --update-goldens --dart-define=SCREENSHOTS=/abs/dir
 ```
 
-Integration tests are destructive and opt-in. Run them only through the
-disposable LXD VM runner, which builds snapd's latest stable release from
-source with test keys:
+Integration tests are destructive: they replace the machine's snapd with a
+source build of snapd's latest stable release, using test keys.
+`scripts/integration/run_suite.sh` does this in place and refuses to run
+unless the machine is disposable. Locally, use the LXD VM wrapper:
 
 ```sh
 ./scripts/test_snapd_integration.sh
 ```
 
-The same runner is used by the `snapd integration` workflow. Both transports
+The `snapd integration` workflow runs `run_suite.sh` directly on the ephemeral
+GitHub runner instead of nesting a VM. Both transports
 use real snapd; only Store authentication/publishing and remote assertion
 retrieval are substituted. Never run this suite against the host's snapd.
 See README.md for prerequisites, diagnostics and debugging options.
