@@ -587,6 +587,8 @@ ConfdbSchema parseSchemaFile(String content) {
 }
 
 /// Parses assertion text: headers, blank line, body, blank line, signature.
+/// `body-length` counts UTF-8 bytes. Unsigned examples without that header
+/// may supply a JSON body terminated by a blank line or the end of the file.
 ConfdbSchema parseAssertion(String text) {
   final lines = const LineSplitter().convert(text);
   final blank = lines.indexWhere((l) => l.trim().isEmpty);
@@ -596,10 +598,31 @@ ConfdbSchema parseAssertion(String text) {
     throw SchemaFormatException('Expected type: confdb-schema, found ${headers['type'] ?? 'nothing'}');
   }
   Object? body;
-  final bodyLength = int.tryParse('${headers['body-length'] ?? ''}');
-  if (blank >= 0 && bodyLength != null && bodyLength > 0) {
+  final rawLength = headers['body-length'];
+  final bodyLength = rawLength == null ? null : int.tryParse('$rawLength');
+  if (rawLength != null && (bodyLength == null || bodyLength < 0)) {
+    throw const SchemaFormatException('Invalid body-length');
+  }
+  if (blank >= 0) {
     final rest = lines.sublist(blank + 1).join('\n');
-    body = jsonDecode(rest.substring(0, bodyLength.clamp(0, rest.length)));
+    if (bodyLength != null && bodyLength > 0) {
+      final bytes = utf8.encode(rest);
+      if (bytes.length < bodyLength) throw const SchemaFormatException('Assertion body is shorter than body-length');
+      try {
+        body = jsonDecode(utf8.decode(bytes.sublist(0, bodyLength)));
+      } on FormatException catch (e) {
+        throw SchemaFormatException('Invalid assertion body: ${e.message}');
+      }
+    } else if (bodyLength == null && rest.trimLeft().startsWith('{')) {
+      final end = rest.indexOf(RegExp(r'\n\s*\n'));
+      try {
+        body = jsonDecode(end < 0 ? rest : rest.substring(0, end));
+      } on FormatException catch (e) {
+        throw SchemaFormatException('Invalid assertion body: ${e.message}');
+      }
+    }
+  } else if (bodyLength != null && bodyLength > 0) {
+    throw const SchemaFormatException('Missing assertion body');
   }
   return schemaFromHeaders(headers, body);
 }

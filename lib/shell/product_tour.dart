@@ -79,6 +79,14 @@ class ProductTour {
 
   static bool _registered = false;
   static String? _activeStage;
+  static bool _dismissedAll = false;
+
+  /// Stops the current tour and suppresses all automatic tours, not Help replay.
+  static Future<void> dismissAllTips() async {
+    _dismissedAll = true;
+    ShowcaseView.get().dismiss();
+    await markSeen('all');
+  }
 
   /// Only pages with their own tour can replay it; authoring's later steps
   /// must not replay the schema editor's hidden targets.
@@ -118,6 +126,7 @@ class ProductTour {
         alignment: MainAxisAlignment.spaceBetween,
       ),
       globalTooltipActions: [
+        TooltipActionButton(type: TooltipDefaultActionType.skip, name: 'Dismiss all tips', onTap: dismissAllTips),
         TooltipActionButton(type: TooltipDefaultActionType.previous, hideActionWidgetForShowcase: TourKeys.firstOfEach),
         TooltipActionButton(type: TooltipDefaultActionType.next, hideActionWidgetForShowcase: TourKeys.lastOfEach),
         TooltipActionButton(
@@ -142,9 +151,11 @@ class ProductTour {
 
   /// Whether [stage]'s tour has already run (or been skipped) on this device.
   static Future<bool> hasBeenSeen(String stage) async {
+    if (_dismissedAll) return true;
     try {
-      return await _marker(stage).exists();
-    } catch (_) {
+      return await _marker('all').exists() || await _marker(stage).exists();
+    } on FileSystemException catch (e) {
+      debugPrint('Could not read product tour preference: $e');
       return true; // Don't keep nagging if we can't tell.
     }
   }
@@ -154,8 +165,8 @@ class ProductTour {
       final f = _marker(stage);
       await f.parent.create(recursive: true);
       await f.writeAsString(DateTime.now().toIso8601String());
-    } catch (_) {
-      // Best effort; worst case that tour runs again next time.
+    } on FileSystemException catch (e) {
+      debugPrint('Could not save product tour preference: $e');
     }
   }
 
@@ -166,7 +177,7 @@ class ProductTour {
     // Widget tests don't exercise onboarding and shouldn't leave a pending
     // overlay/timer behind when the test tree is torn down.
     if (Platform.environment['FLUTTER_TEST'] == 'true') return;
-    if (await hasBeenSeen(stage)) return;
+    if (await hasBeenSeen(stage) || _dismissedAll) return;
     if (!context.mounted) return;
     ensureRegistered();
     _activeStage = stage;

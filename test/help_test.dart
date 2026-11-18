@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:confdb_studio/app.dart';
 import 'package:confdb_studio/data/fake/fake_repository.dart';
 import 'package:confdb_studio/data/fake/sample_data.dart';
@@ -75,6 +77,36 @@ void main() {
     expect(find.text('Confdb documentation'), findsOneWidget);
     final replay = tester.widget<MenuItemButton>(find.widgetWithText(MenuItemButton, 'Replay page tooltips'));
     expect(replay.onPressed, isNull);
+  });
+
+  testWidgets('dismissing all tips stops the tour, persists the choice and still allows replay', (tester) async {
+    await open(tester, const OverviewRoute());
+    await tester.tap(find.text('Replay page tooltips'));
+    await tester.pumpAndSettle();
+    expect(find.text('Dismiss all tips'), findsOneWidget);
+
+    await tester.runAsync(() async {
+      final dir = await Directory.systemTemp.createTemp('tour_test');
+      final marker = File('${dir.path}/tour_all_seen');
+      try {
+        await IOOverrides.runZoned(ProductTour.dismissAllTips, createFile: (_) => marker);
+        expect(await marker.exists(), isTrue);
+        for (final stage in ['overview', 'new_schema', 'editor']) {
+          expect(await ProductTour.hasBeenSeen(stage), isTrue);
+        }
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    });
+    await tester.pumpAndSettle();
+    expect(find.text('Dismiss all tips'), findsNothing);
+    await tester.tap(find.byTooltip('Help'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Replay page tooltips'));
+    await tester.pumpAndSettle();
+    expect(find.text('Every schema you own or can see lives here, local and Snap Store alike.'), findsOneWidget);
+    ShowcaseView.get().dismiss();
+    await tester.pumpAndSettle();
   });
 
   test('tour selection uses the page, not its shared rail destination', () {

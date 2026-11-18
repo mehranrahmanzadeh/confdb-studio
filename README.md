@@ -20,6 +20,13 @@ Each rule card maps a request path to a storage path, with access and (for
 maps) field-selection controls below. The Storage pane has separate Tree,
 JSON, and Aliases tabs; use Aliases to create and manage reusable types.
 
+Import shows the full original assertion or JSON file before creating a local
+draft, including its storage body and any signature. Assertion imports accept
+UTF-8 byte lengths and unsigned examples without a `body-length` header.
+
+Choose **Dismiss all tips** on any introductory tooltip to skip all first-run
+tours. You can still use **Help → Replay page tooltips** at any time.
+
 ![Confdb schema editor](docs/screenshots/schema_editor.png)
 
 ### Data Explorer

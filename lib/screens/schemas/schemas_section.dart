@@ -42,12 +42,48 @@ Future<void> importSchemaFromDisk(BuildContext context) async {
   );
   if (file == null) return;
   try {
+    final content = await file.readAsString();
+    if (!context.mounted) return;
+    final confirmed = await showSchemaImportPreview(context, fileName: file.name, content: content);
+    if (!confirmed || !context.mounted) return;
     final draft = await scope.repository.importSchema(file.path);
     scope.app.go(SchemaEditorRoute(draft.id));
   } catch (e) {
     if (context.mounted) showConfirmation(context, Text('Couldn’t import ${file.name}: $e'), kind: MessageKind.error);
   }
 }
+
+/// Shows the original file, including its body and signature, before importing.
+Future<bool> showSchemaImportPreview(BuildContext context, {required String fileName, required String content}) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Import schema'),
+        content: SizedBox(
+          width: 800,
+          height: 560,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(fileName),
+              const SizedBox(height: 12),
+              const Text('Review the full file before importing it as a local draft.'),
+              const SizedBox(height: 12),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: MonoText(content, selectable: true, style: context.text.bodySmall),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Import')),
+        ],
+      ),
+    ) ??
+    false;
 
 /// The schemas table on the overview (was 7.3 Schemas, SchemasList.dc.html):
 /// search and filters, the Snap Store state, and per-schema actions. Shows a

@@ -13,6 +13,40 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   group('schema codec', () {
+    test('imports an assertion preview without body-length with its storage and aliases', () {
+      final draft = networkRev4.copyWith(
+        aliases: {'label': const StorageNode(key: 'label', kind: StorageKind.string)},
+      );
+      final text = formatAssertionPreview(draft);
+      for (final suffix in ['', '\n\nSIGNATURE\n']) {
+        final imported = parseSchemaFile('$text$suffix');
+        expect(encodeStorage(imported.storage, aliases: imported.aliases), encodeStorage(draft.storage, aliases: draft.aliases));
+        expect(encodeViews(imported.views), encodeViews(draft.views));
+        expect(lintSchema(imported).where((issue) => issue.isError), isEmpty);
+      }
+    });
+
+    test('reads assertion body-length as UTF-8 bytes, not characters', () {
+      final body = '{"storage":{"schema":{"label":{"type":"string","choices":["caf\u00e9"]}}}}';
+      final text = 'type: confdb-schema\naccount-id: acme\nname: labels\n'
+          'body-length: ${utf8.encode(body).length}\n\n$body\n\nSIGNATURE';
+      final imported = parseSchemaFile(text);
+      expect(imported.storage.lookup('label')!.choices, ['caf\u00e9']);
+    });
+
+    test('rejects invalid lengths, truncated bodies and malformed unsigned storage', () {
+      const headers = 'type: confdb-schema\naccount-id: acme\nname: broken\n';
+      for (final text in [
+        '${headers}body-length: nope\n\n{}',
+        '${headers}body-length: -1\n\n{}',
+        '${headers}body-length: 100\n\n{}',
+        '${headers}body-length: 100',
+        '$headers\n{"storage":',
+      ]) {
+        expect(() => parseSchemaFile(text), throwsA(isA<SchemaFormatException>()), reason: text);
+      }
+    });
+
     test('decodes a real confdb-schema assertion from snapd', () {
       final a = jsonDecode(File('test/fixtures/validation_sets_assertion.json').readAsStringSync()) as Map;
       final s = schemaFromHeaders(a['headers'] as Map, jsonDecode(a['body'] as String));

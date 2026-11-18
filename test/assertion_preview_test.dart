@@ -1,9 +1,42 @@
 import 'package:confdb_studio/data/models.dart';
 import 'package:confdb_studio/domain/schema_codec.dart';
 import 'package:confdb_studio/domain/templates.dart';
+import 'package:confdb_studio/screens/schemas/schemas_section.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  for (final confirm in [false, true]) {
+    testWidgets('import preview shows the entire original assertion and ${confirm ? 'confirms' : 'cancels'}', (tester) async {
+      const content =
+          'type: confdb-schema\naccount-id: acme\nname: example\n\n'
+          '{"storage":{"schema":{"label":"string"}}}\n\nORIGINAL_SIGNATURE';
+      bool? result;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async {
+                  result = await showSchemaImportPreview(context, fileName: 'example.assert', content: content);
+                },
+                child: const Text('Open preview'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open preview'));
+      await tester.pumpAndSettle();
+      expect(find.text('example.assert'), findsOneWidget);
+      expect(find.widgetWithText(SelectableText, content), findsOneWidget);
+      await tester.tap(find.text(confirm ? 'Import' : 'Cancel'));
+      await tester.pumpAndSettle();
+      expect(result, confirm);
+      expect(find.byType(AlertDialog), findsNothing);
+    });
+  }
+
   group('formatAssertionPreview', () {
     test('renders aligned headers, YAML views and a JSON storage body, like confdb docs', () {
       final draft = schemaTemplates.first.build(const SchemaId('acme', 'network'));
