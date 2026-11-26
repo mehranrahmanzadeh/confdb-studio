@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:confdb_studio/data/fake/fake_repository.dart';
 import 'package:confdb_studio/data/fake/sample_data.dart';
 import 'package:confdb_studio/data/models.dart';
+import 'package:confdb_studio/data/remote/fake_message_service.dart';
+import 'package:confdb_studio/domain/remote.dart';
 import 'package:confdb_studio/shell/account_button.dart';
 import 'package:confdb_studio/shell/app_shell.dart';
 import 'package:confdb_studio/state/app_controller.dart';
@@ -41,6 +45,24 @@ Future<void> networkDraftWithAliases(FakeConfdbRepository repo) => repo.saveDraf
 );
 
 StagingController staging(WidgetTester t) => t.element(find.byType(AppShell)).staging;
+
+/// Sends sample remote requests and waits for the sample devices to answer.
+Future<void> sendRemoteRequests(WidgetTester t) async {
+  final remote = t.element(find.byType(AppShell)).remote;
+  final gateways = [for (final d in sampleRemoteDevices().take(2)) d.id];
+  final all = [for (final d in sampleRemoteDevices()) d.id];
+  unawaited(
+    remote
+        .send(action: RemoteAction.get, view: wifiAdmin, devices: all, keys: ['ssid', 'psk', 'band'])
+        .then((_) => remote.send(action: RemoteAction.set, view: wifiAdmin, devices: gateways, values: {'band': '5GHz'})),
+  );
+  await t.pump();
+  // The sample devices answer after a few seconds of real time.
+  await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 4200)));
+  unawaited(remote.pollNow());
+  await t.pump();
+  await t.tap(find.textContaining('ssid, psk, band').first);
+}
 
 const _band = StorageNode(key: 'band', kind: StorageKind.string, choices: ['2.4GHz', '5GHz', 'auto']);
 const _ssid = StorageNode(key: 'ssid', kind: StorageKind.string);
@@ -487,4 +509,7 @@ final shots = <Shot>[
     DataRoute(view: ViewRef(acmeAccountId, 'telemetry', 'telemetry-admin')),
     scenario: FakeScenario(latency: Duration.zero, noCustodian: true),
   ),
+  const Shot('remote-empty', RemoteRoute()),
+  Shot('remote-activity', const RemoteRoute(), act: sendRemoteRequests),
+  Shot('remote-compose', const RemoteRoute(), act: (t) async => t.tap(find.text('New message').first)),
 ];

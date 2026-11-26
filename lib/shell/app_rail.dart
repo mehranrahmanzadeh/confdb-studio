@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../state/app_controller.dart';
+import '../state/app_scope.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_icons.dart';
 import 'account_button.dart';
@@ -9,7 +10,8 @@ import 'help_button.dart';
 import 'product_tour.dart';
 import 'snapd_status.dart';
 
-/// Rail.dc.html: Overview (with the schemas), Data, Access. Icons only (with
+/// Rail.dc.html: Overview (with the schemas), Data, Access, plus Remote (with
+/// the number of requests waiting for devices). Icons only (with
 /// tooltips) when compact.
 class AppRail extends StatelessWidget {
   const AppRail({super.key, required this.selected, required this.onSelected, required this.compact});
@@ -22,25 +24,30 @@ class AppRail extends StatelessWidget {
     (Destination.overview, 'Schema', AppIcons.schemas, AppIcons.schemasSelected),
     (Destination.data, 'Data', AppIcons.data, AppIcons.dataSelected),
     (Destination.access, 'Access', AppIcons.access, AppIcons.accessSelected),
+    (Destination.remote, 'Remote', AppIcons.remote, AppIcons.remoteSelected),
   ];
 
   static const _tourCopy = {
     Destination.overview: ('Schemas', 'Every schema you own or can see lives here, local and Snap Store alike.'),
     Destination.data: ('Data', 'Browse and edit the live confdb data behind each view.'),
     Destination.access: ('Access', 'See which snaps plug which views, and manage who can read or write what.'),
+    Destination.remote: ('Remote', 'Read and change confdb on your devices through the Snap Store\'s message service.'),
   };
 
   static final _tourKeys = {
     Destination.overview: TourKeys.railSchema,
     Destination.data: TourKeys.railData,
     Destination.access: TourKeys.railAccess,
+    Destination.remote: TourKeys.railRemote,
   };
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     Widget icon(Destination d, IconData i, String label) {
-      final plain = compact ? Tooltip(message: label, child: Icon(i)) : Icon(i);
+      Widget glyph = Icon(i);
+      if (d == Destination.remote) glyph = _RemoteBadge(child: glyph);
+      final plain = compact ? Tooltip(message: label, child: glyph) : glyph;
       final (title, description) = _tourCopy[d]!;
       return tourShowcase(context, key: _tourKeys[d]!, title: title, description: description, child: plain);
     }
@@ -73,6 +80,24 @@ class AppRail extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The number of requests still waiting for a device.
+class _RemoteBadge extends StatelessWidget {
+  const _RemoteBadge({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final remote = context.remote;
+    return ListenableBuilder(
+      listenable: remote,
+      builder: (context, _) {
+        final n = remote.waitingCount;
+        return Badge(isLabelVisible: n > 0, label: Text('$n'), child: child);
+      },
     );
   }
 }

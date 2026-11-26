@@ -42,6 +42,8 @@ tours. You can still use **Help → Replay page tooltips** at any time.
 ```sh
 flutter run -d linux                                  # sample data (default)
 flutter run -d linux --dart-define=CONFDB_BACKEND=rest   # snapd on /run/snapd.socket
+flutter run -d linux --dart-define=CONFDB_BACKEND=rest \
+  --dart-define=CONFDB_STORE_URL=http://test-store.lxd   # default Store for the Remote tab
 ```
 
 ## Snap
@@ -80,6 +82,61 @@ vendored in this repo) and bound from Dart over `dart:ffi`
 (`lib/data/store/snapstore_auth_client.dart`). Build it with
 `scripts/build_rust_backend.sh` before `flutter run`/packaging; the saved
 login lives in `store.json` under the app data dir.
+
+## Remote devices
+
+The **Remote** tab reads and writes confdb on other devices through the
+Store's message service. Studio signs a `request-message` assertion
+(`message-kind: confdb`, a `get` or `set` body) with `snap sign`, sends it on
+a message session (`POST <store>/publishergw/v1/brand/<account>/messages/sessions`
+and `…/sessions/<id>/exchange`), and polls the session for each device's
+`response-message`. Answers are acknowledged once saved. A device collects a
+request when it next checks in and answers on a later check-in, so answers can
+take a while.
+
+The left pane lists devices (`<serial>.<model>.<brand-id>`, or paste
+`snap known serial` output) grouped by brand and model; the right pane shows
+the activity for the selection. **New message** opens a composer: targets,
+action and view, keys or values, then review and **Sign & send**. A failed
+device can be retried, and a request duplicated. Values the schema marks
+secret are masked; for views whose schema Studio doesn't have, answers are
+hidden until you choose **Show values**.
+
+Open **Settings** on the tab to set:
+
+- **Store URL**: e.g. `http://test-store.lxd`. Defaults to
+  `CONFDB_STORE_URL` (`--dart-define` or environment). The API path is
+  configurable too, with `{account}` replaced.
+- **Account**: the request signer and session owner; filled in from the
+  Store login when empty.
+- **Authentication**: a command that prints a macaroon (run with `sh`,
+  `{account}` replaced, rerun after 55 minutes or when refused), or a pasted
+  macaroon. For a local test store:
+
+  ```sh
+  lxc exec test-store -- curl -s -X POST http://127.0.0.1:8005/tokens/create \
+    -H 'Content-Type: application/json' \
+    -d '{"account_id":"{account}","ttl_seconds":3600}' | jq -r .macaroon
+  ```
+
+- **Signing key**: a `snap keys` key registered to the account, and how long
+  requests stay valid.
+
+Settings, devices and request history are saved in `remote.json` under the app
+data dir. With the default sample backend, the tab uses made-up devices that
+answer after a few seconds.
+
+Each device needs the schema, remote device management, and a delegation of
+the view to the account:
+
+```sh
+sudo snap set system experimental.remote-device-management=true \
+  remote-device-management.enabled=true
+echo '{"action":"delegate","operator-id":"<account>","authentications":["operator-key"],"views":["<account>/<schema>/<view>"]}' |
+  sudo snap debug api -X POST -H 'Content-Type: application/json' /v2/confdb
+```
+
+A device without the delegation answers `unauthorized`.
 
 ## Tests
 

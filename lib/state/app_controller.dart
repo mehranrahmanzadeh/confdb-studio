@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/models.dart';
 
-enum Destination { overview, data, access }
+enum Destination { overview, data, access, remote }
 
 /// Where the app is. Each route knows its rail destination.
 sealed class AppRoute {
@@ -97,6 +97,16 @@ class AccessRoute extends AppRoute {
   Destination get destination => Destination.access;
 }
 
+/// Confdb on other devices, through the Store's message service.
+class RemoteRoute extends AppRoute {
+  const RemoteRoute({this.device});
+
+  /// Device ID whose activity is shown first.
+  final String? device;
+  @override
+  Destination get destination => Destination.remote;
+}
+
 class AppController extends ChangeNotifier {
   AppController({AppRoute initial = const OverviewRoute()}) : _route = initial;
 
@@ -129,6 +139,7 @@ class AppController extends ChangeNotifier {
     Destination.overview => const OverviewRoute(),
     Destination.data => const DataRoute(),
     Destination.access => const AccessRoute(),
+    Destination.remote => const RemoteRoute(),
   });
 
   /// Schema editor pane widths, kept for the session.

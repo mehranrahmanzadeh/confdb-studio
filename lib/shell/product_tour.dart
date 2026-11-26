@@ -43,9 +43,10 @@ class TourKeys {
   static final railSchema = GlobalKey(debugLabel: 'tour-rail-schema');
   static final railData = GlobalKey(debugLabel: 'tour-rail-data');
   static final railAccess = GlobalKey(debugLabel: 'tour-rail-access');
+  static final railRemote = GlobalKey(debugLabel: 'tour-rail-remote');
   static final account = GlobalKey(debugLabel: 'tour-account');
   static final newSchema = GlobalKey(debugLabel: 'tour-new-schema');
-  static final overview = [railSchema, railData, railAccess, account, newSchema];
+  static final overview = [railSchema, railData, railAccess, railRemote, account, newSchema];
 
   // New schema: picking a template, naming it, and opening the editor.
   static final chooseTemplate = GlobalKey(debugLabel: 'tour-choose-template');

@@ -4,6 +4,7 @@ import '../screens/access/access_screen.dart';
 import '../screens/data/data_explorer_screen.dart';
 import '../screens/onboarding/onboarding_screen.dart';
 import '../screens/overview/overview_screen.dart';
+import '../screens/remote/remote_screen.dart';
 import '../screens/review/review_sheet.dart';
 import '../screens/schema_editor/schema_editor_screen.dart';
 import '../screens/sign/sign_dialog.dart';
@@ -15,6 +16,7 @@ Widget buildScreen(AppRoute route) => switch (route) {
   OverviewRoute() => OverviewScreen(route: route),
   DataRoute() => DataExplorerScreen(route: route),
   AccessRoute() => AccessScreen(route: route),
+  RemoteRoute() => RemoteScreen(route: route),
   // One screen for both steps, so the draft and header stay put between them.
   AuthoringRoute() => SchemaEditorScreen(route: route),
   OnboardingRoute() => OnboardingScreen(route: route),

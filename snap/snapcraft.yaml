@@ -62,6 +62,22 @@ parts:
       # that file, or staging fails with a same-file-different-contents
       # conflict between the two parts.
       rm -rf linux/rust
+    override-build: |
+      set -eux
+      # The flutter plugin only clones the tip of a channel, so every clean
+      # build could ship a different engine. Pin the SDK to the version CI
+      # tests with; the plugin still puts flutter-distro/bin on PATH.
+      FLUTTER_VERSION=3.47.7
+      FLUTTER_DIR="$CRAFT_PART_BUILD/flutter-distro"
+      if [ "$(git -C "$FLUTTER_DIR" describe --tags --exact-match 2>/dev/null)" != "$FLUTTER_VERSION" ]; then
+        rm -rf "$FLUTTER_DIR"
+        git clone --depth 1 -b "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$FLUTTER_DIR"
+        "$FLUTTER_DIR/bin/flutter" --version
+      fi
+      flutter precache --linux
+      flutter pub get
+      flutter build linux --release --verbose --target lib/main.dart
+      cp -r build/linux/*/release/bundle/* "$CRAFT_PART_INSTALL/"
 
   rust-auth:
     plugin: nil

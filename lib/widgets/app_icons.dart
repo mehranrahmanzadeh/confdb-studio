@@ -8,6 +8,10 @@ abstract final class AppIcons {
   static const dataSelected = Icons.storage;
   static const access = Icons.power_outlined;
   static const accessSelected = Icons.power;
+  static const remote = Icons.devices_other_outlined;
+  static const remoteSelected = Icons.devices_other;
+  static const send = Icons.send_outlined;
+  static const settings = Icons.settings_outlined;
   static const views = Icons.visibility_outlined;
 
   static const ok = Icons.check_circle_outline;

@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import '../data/confdb_repository.dart';
 import 'app_controller.dart';
+import 'remote_controller.dart';
 import 'staging_controller.dart';
 import 'store_controller.dart';
 
@@ -13,6 +14,7 @@ class AppScope extends InheritedWidget {
     required this.app,
     required this.staging,
     required this.store,
+    required this.remote,
     required super.child,
   });
 
@@ -22,6 +24,9 @@ class AppScope extends InheritedWidget {
 
   /// The Snap Store login and the schemas registered there.
   final StoreController store;
+
+  /// Devices managed through the Store's message service.
+  final RemoteController remote;
 
   /// The scope's objects live for the whole app and widgets listen to the
   /// controllers directly, so no dependency is registered (this also makes it
@@ -34,7 +39,11 @@ class AppScope extends InheritedWidget {
 
   @override
   bool updateShouldNotify(AppScope oldWidget) =>
-      repository != oldWidget.repository || app != oldWidget.app || staging != oldWidget.staging || store != oldWidget.store;
+      repository != oldWidget.repository ||
+      app != oldWidget.app ||
+      staging != oldWidget.staging ||
+      store != oldWidget.store ||
+      remote != oldWidget.remote;
 }
 
 extension AppScopeContext on BuildContext {
@@ -43,4 +52,5 @@ extension AppScopeContext on BuildContext {
   AppController get app => AppScope.of(this).app;
   StagingController get staging => AppScope.of(this).staging;
   StoreController get store => AppScope.of(this).store;
+  RemoteController get remote => AppScope.of(this).remote;
 }
