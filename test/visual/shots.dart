@@ -64,6 +64,15 @@ Future<void> sendRemoteRequests(WidgetTester t) async {
   await t.tap(find.textContaining('ssid, psk, band').first);
 }
 
+/// Opens named sessions, one with requests, and shows the session menu.
+Future<void> openRemoteSessions(WidgetTester t) async {
+  await sendRemoteRequests(t);
+  final remote = t.element(find.byType(AppShell)).remote;
+  unawaited(remote.createSession('Debug session'));
+  await t.pump();
+  await t.tap(find.text('Debug session').first);
+}
+
 const _band = StorageNode(key: 'band', kind: StorageKind.string, choices: ['2.4GHz', '5GHz', 'auto']);
 const _ssid = StorageNode(key: 'ssid', kind: StorageKind.string);
 const _psk = StorageNode(key: 'psk', kind: StorageKind.string);
@@ -511,5 +520,6 @@ final shots = <Shot>[
   ),
   const Shot('remote-empty', RemoteRoute()),
   Shot('remote-activity', const RemoteRoute(), act: sendRemoteRequests),
+  Shot('remote-sessions', const RemoteRoute(), act: openRemoteSessions),
   Shot('remote-compose', const RemoteRoute(), act: (t) async => t.tap(find.text('New message').first)),
 ];

@@ -39,6 +39,8 @@ class ExchangeResult {
 /// The account side of the Store's message service: sessions and the
 /// exchange that sends requests, acknowledges and fetches responses.
 abstract interface class MessageService {
+  /// The account's session IDs.
+  Future<List<String>> listSessions();
   Future<String> createSession();
   Future<void> removeSession(String session);
 
@@ -69,6 +71,17 @@ class HttpMessageService implements MessageService {
   final RemoteSettings settings;
   final TokenSource tokens;
   final HttpClient _client;
+
+  @override
+  Future<List<String>> listSessions() async {
+    final json = await _call('GET', settings.sessionsUri, null);
+    final list = json is Map ? json['sessions'] : null;
+    if (list is! List) throw const MessageServiceException('The message service returned no session list');
+    return [
+      for (final s in list)
+        if (s is Map && s['session'] is String) s['session'] as String,
+    ];
+  }
 
   @override
   Future<String> createSession() async {
@@ -102,10 +115,12 @@ class HttpMessageService implements MessageService {
     );
   }
 
-  Future<Object?> _post(Uri uri, Map<String, Object?> body) async {
-    var (status, text) = await _send(uri, body, await tokens.token());
+  Future<Object?> _post(Uri uri, Map<String, Object?> body) => _call('POST', uri, body);
+
+  Future<Object?> _call(String method, Uri uri, Map<String, Object?>? body) async {
+    var (status, text) = await _send(method, uri, body, await tokens.token());
     if (status == 401 && tokens.canRefresh) {
-      (status, text) = await _send(uri, body, await tokens.token(refresh: true));
+      (status, text) = await _send(method, uri, body, await tokens.token(refresh: true));
     }
     if (status >= 200 && status < 300) {
       if (text.trim().isEmpty) return null;
@@ -122,13 +137,14 @@ class HttpMessageService implements MessageService {
     );
   }
 
-  Future<(int, String)> _send(Uri uri, Map<String, Object?> body, String token) async {
+  Future<(int, String)> _send(String method, Uri uri, Map<String, Object?>? body, String token) async {
     try {
-      final req = await _client.postUrl(uri);
-      req.headers
-        ..set(HttpHeaders.authorizationHeader, 'Macaroon $token')
-        ..contentType = ContentType.json;
-      req.write(jsonEncode(body));
+      final req = await _client.openUrl(method, uri);
+      req.headers.set(HttpHeaders.authorizationHeader, 'Macaroon $token');
+      if (body != null) {
+        req.headers.contentType = ContentType.json;
+        req.write(jsonEncode(body));
+      }
       final res = await req.close().timeout(const Duration(seconds: 30));
       return (res.statusCode, await res.transform(utf8.decoder).join());
     } on SocketException catch (e) {

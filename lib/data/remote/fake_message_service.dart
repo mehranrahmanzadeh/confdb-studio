@@ -125,6 +125,9 @@ class FakeMessageService implements MessageService {
   final received = <String>[];
 
   @override
+  Future<List<String>> listSessions() async => [..._sessions.keys];
+
+  @override
   Future<String> createSession() async {
     final id = 'FAKESESSION${_next++}';
     _sessions[id] = [];

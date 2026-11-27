@@ -51,8 +51,11 @@ class RemoteSettings {
 
   bool get hasAuth => tokenCommand.trim().isNotEmpty || token.trim().isNotEmpty;
 
+  /// Enough to manage sessions.
+  bool get canConnect => storeUrl.trim().isNotEmpty && account.trim().isNotEmpty && hasAuth;
+
   /// Everything needed to send a request.
-  bool get isComplete => storeUrl.trim().isNotEmpty && account.trim().isNotEmpty && signingKey.trim().isNotEmpty && hasAuth;
+  bool get isComplete => canConnect && signingKey.trim().isNotEmpty;
 
   /// `…/messages/sessions`.
   Uri get sessionsUri {
@@ -62,7 +65,10 @@ class RemoteSettings {
   }
 
   /// Whether a session opened with [other] is still usable with these.
-  bool sameService(RemoteSettings other) => other.storeUrl == storeUrl && other.apiPath == apiPath && other.account == account;
+  bool sameService(RemoteSettings other) => other.serviceKey == serviceKey;
+
+  /// Identifies the account's sessions on one message service.
+  String get serviceKey => '${storeUrl.trim()}|${apiPath.trim()}|${account.trim()}';
 
   RemoteSettings copyWith({
     String? storeUrl,
@@ -147,6 +153,7 @@ class RemoteRequest {
     required this.devices,
     required this.created,
     required this.validUntil,
+    this.session,
     this.keys = const [],
     this.values = const {},
     this.assertion,
@@ -155,8 +162,9 @@ class RemoteRequest {
     this.responses = const {},
   });
 
-  factory RemoteRequest.fromJson(Map json) => RemoteRequest(
+  factory RemoteRequest.fromJson(Map json, {String? defaultSession}) => RemoteRequest(
     messageId: json['message-id'] as String,
+    session: json['session'] as String? ?? defaultSession,
     action: RemoteAction.parse(json['action'] as String? ?? ''),
     view: json['view'] as String,
     devices: [for (final d in json['devices'] as List? ?? const []) d as String],
@@ -182,6 +190,9 @@ class RemoteRequest {
   final List<String> devices;
   final DateTime created;
   final DateTime validUntil;
+
+  /// The [RemoteSession.key] it was sent in.
+  final String? session;
 
   /// For a `get`: the request paths asked for (all when empty).
   final List<String> keys;
@@ -225,6 +236,7 @@ class RemoteRequest {
     devices: devices,
     created: created,
     validUntil: validUntil,
+    session: session,
     keys: keys,
     values: values,
     assertion: assertion ?? this.assertion,
@@ -240,6 +252,7 @@ class RemoteRequest {
     'devices': devices,
     'created': created.toUtc().toIso8601String(),
     'valid-until': validUntil.toUtc().toIso8601String(),
+    'session': ?session,
     if (keys.isNotEmpty) 'keys': keys,
     if (values.isNotEmpty) 'values': values,
     'assertion': ?assertion,
@@ -249,6 +262,68 @@ class RemoteRequest {
   };
 }
 
+/// A message session on the Store, with the name Studio knows it by.
+///
+/// The service only knows session IDs, so names live here. [key] stays the
+/// same when the service loses the session and a new one is opened in its
+/// place; [id] is the session on the service, `null` while there's none.
+@immutable
+class RemoteSession {
+  const RemoteSession({required this.key, required this.service, this.id, this.name = '', this.created, this.ackToken});
+
+  factory RemoteSession.fromJson(Map json) => RemoteSession(
+    key: json['key'] as String,
+    service: json['service'] as String? ?? '',
+    id: json['id'] as String?,
+    name: json['name'] as String? ?? '',
+    created: DateTime.tryParse(json['created'] as String? ?? ''),
+    ackToken: json['ack-token'] as String?,
+  );
+
+  final String key;
+
+  /// The [RemoteSettings.serviceKey] it belongs to.
+  final String service;
+  final String? id;
+
+  /// Empty for a session opened outside Studio.
+  final String name;
+
+  /// Unknown for a session opened outside Studio.
+  final DateTime? created;
+
+  /// The newest response token seen and saved, acknowledged on the next
+  /// exchange.
+  final String? ackToken;
+
+  /// The service doesn't have it (any more).
+  bool get gone => id == null;
+
+  String get displayName => name.isNotEmpty ? name : 'Unnamed session ${_short(id ?? key)}';
+
+  RemoteSession copyWith({String? name, Object? id = _keep, Object? ackToken = _keep}) => RemoteSession(
+    key: key,
+    service: service,
+    id: identical(id, _keep) ? this.id : id as String?,
+    name: name ?? this.name,
+    created: created,
+    ackToken: identical(ackToken, _keep) ? this.ackToken : ackToken as String?,
+  );
+
+  Map<String, Object?> toJson() => {
+    'key': key,
+    'service': service,
+    'id': ?id,
+    if (name.isNotEmpty) 'name': name,
+    'created': ?created?.toUtc().toIso8601String(),
+    'ack-token': ?ackToken,
+  };
+}
+
+String _short(String id) => id.length > 8 ? '${id.substring(0, 8)}…' : id;
+
+const _keep = Object();
+
 /// Everything the Remote tab keeps between runs.
 @immutable
 class RemoteState {
@@ -256,38 +331,68 @@ class RemoteState {
     this.settings = const RemoteSettings(),
     this.devices = const [],
     this.requests = const [],
-    this.session,
-    this.ackToken,
+    this.sessions = const [],
+    this.current,
   });
 
-  factory RemoteState.fromJson(Map json) => RemoteState(
-    settings: RemoteSettings.fromJson(json['settings'] as Map? ?? const {}),
-    devices: [for (final d in json['devices'] as List? ?? const []) ?_tryDevice(d as Map)],
-    requests: [for (final r in json['requests'] as List? ?? const []) RemoteRequest.fromJson(r as Map)],
-    session: json['session'] as String?,
-    ackToken: json['ack-token'] as String?,
-  );
+  factory RemoteState.fromJson(Map json) {
+    final settings = RemoteSettings.fromJson(json['settings'] as Map? ?? const {});
+    final sessions = [for (final s in json['sessions'] as List? ?? const []) RemoteSession.fromJson(s as Map)];
+    // Before named sessions there was one, unnamed.
+    final legacy = json['session'] as String?;
+    if (legacy != null && sessions.every((s) => s.key != legacy)) {
+      sessions.add(
+        RemoteSession(
+          key: legacy,
+          id: legacy,
+          service: settings.serviceKey,
+          name: 'Default session',
+          ackToken: json['ack-token'] as String?,
+        ),
+      );
+    }
+    return RemoteState(
+      settings: settings,
+      devices: [for (final d in json['devices'] as List? ?? const []) ?_tryDevice(d as Map)],
+      requests: [for (final r in json['requests'] as List? ?? const []) RemoteRequest.fromJson(r as Map, defaultSession: legacy)],
+      sessions: sessions,
+      current: json['current-session'] as String? ?? legacy,
+    );
+  }
 
   final RemoteSettings settings;
   final List<RemoteDevice> devices;
 
-  /// Newest first.
+  /// Newest first, in every session.
   final List<RemoteRequest> requests;
 
-  /// The open message session; removing it drops its pending requests, so
-  /// it's kept across runs.
-  final String? session;
+  /// Sessions on every service used; kept across runs, as removing one
+  /// drops the requests devices haven't collected yet.
+  final List<RemoteSession> sessions;
 
-  /// The newest response token seen and saved, acknowledged on the next
-  /// exchange.
-  final String? ackToken;
+  /// The selected session's key.
+  final String? current;
+
+  RemoteState copyWith({
+    RemoteSettings? settings,
+    List<RemoteDevice>? devices,
+    List<RemoteRequest>? requests,
+    List<RemoteSession>? sessions,
+    Object? current = _keep,
+  }) => RemoteState(
+    settings: settings ?? this.settings,
+    devices: devices ?? this.devices,
+    requests: requests ?? this.requests,
+    sessions: sessions ?? this.sessions,
+    current: identical(current, _keep) ? this.current : current as String?,
+  );
 
   Map<String, Object?> toJson() => {
     'settings': settings.toJson(),
     'devices': [for (final d in devices) d.toJson()],
     'requests': [for (final r in requests) r.toJson()],
-    'session': ?session,
-    'ack-token': ?ackToken,
+    if (sessions.isNotEmpty) 'sessions': [for (final s in sessions) s.toJson()],
+    'current-session': ?current,
   };
 }
 

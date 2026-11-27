@@ -178,6 +178,22 @@ ParsedAssertion parseAssertion(String text) {
   return ParsedAssertion(headers, body);
 }
 
+/// [text] with its body replaced by [body], for display only: the signature
+/// no longer matches. `body-length` is updated to the new body.
+String replaceAssertionBody(String text, String body) {
+  final normalized = text.replaceAll('\r\n', '\n');
+  final split = normalized.indexOf('\n\n');
+  if (split < 0) return text;
+  final head = normalized.substring(0, split);
+  final match = RegExp(r'^body-length: *(\d+)$', multiLine: true).firstMatch(head);
+  final rest = utf8.encode(normalized.substring(split + 2));
+  final length = int.parse(match?.group(1) ?? '0').clamp(0, rest.length);
+  final tail = utf8.decode(rest.sublist(length), allowMalformed: true);
+  final newLength = 'body-length: ${utf8.encode(body).length}';
+  final newHead = match == null ? '$head\n$newLength' : head.replaceRange(match.start, match.end, newLength);
+  return '$newHead\n\n$body$tail';
+}
+
 /// A response-message's `status` (snapd's `asserts.MessageStatus`).
 enum MessageStatus {
   success,
@@ -198,7 +214,14 @@ enum MessageStatus {
 /// One device's answer to a request.
 @immutable
 class RemoteResponse {
-  const RemoteResponse({required this.messageId, required this.device, required this.status, required this.body, this.timestamp});
+  const RemoteResponse({
+    required this.messageId,
+    required this.device,
+    required this.status,
+    required this.body,
+    this.timestamp,
+    this.assertion,
+  });
 
   /// Reads a response-message assertion. Throws [FormatException] when it
   /// isn't one.
@@ -223,6 +246,7 @@ class RemoteResponse {
       status: MessageStatus.parse(a.header('status') ?? ''),
       body: body,
       timestamp: DateTime.tryParse(a.header('timestamp') ?? ''),
+      assertion: text,
     );
   }
 
@@ -232,6 +256,7 @@ class RemoteResponse {
     status: MessageStatus.parse(json['status'] as String? ?? ''),
     body: (json['body'] as Map?)?.cast<String, Object?>(),
     timestamp: DateTime.tryParse(json['timestamp'] as String? ?? ''),
+    assertion: json['assertion'] as String?,
   );
 
   /// The request's base ID: a sequenced `abc-2` answers `abc`'s step 2.
@@ -240,6 +265,10 @@ class RemoteResponse {
   final MessageStatus status;
   final Map<String, Object?>? body;
   final DateTime? timestamp;
+
+  /// The signed response-message as the device sent it; null for responses
+  /// recorded before Studio kept it.
+  final String? assertion;
 
   /// `values` of a successful `get`.
   Map<String, Object?>? get values => (body?['values'] as Map?)?.cast<String, Object?>();
@@ -253,6 +282,7 @@ class RemoteResponse {
     'status': status.name,
     'body': ?body,
     if (timestamp != null) 'timestamp': timestamp!.toUtc().toIso8601String(),
+    'assertion': ?assertion,
   };
 }
 
@@ -265,6 +295,57 @@ List<(String, Object?)> flattenValues(Map<String, Object?> values, [String prefi
     else
       (joinTreePath(prefix, e.key), e.value),
 ];
+
+/// Leaves of a `get` answer (see [flattenValues]) read through [from], as
+/// values to set through [to]: each goes through [from]'s rules to storage, then back out through a rule
+/// of [to] that can write it. Leaves [to] can't write are in `dropped`.
+/// Without both views' definitions the paths are kept as they are.
+({Map<String, Object?> values, List<String> dropped}) carryValues(Iterable<(String, Object?)> leaves, {ViewDef? from, ViewDef? to}) {
+  final values = <String, Object?>{};
+  final dropped = <String>[];
+  for (final (path, value) in leaves) {
+    final target = from == null || to == null ? path : _requestFor(to, _storageOf(from, path));
+    if (target == null || values.containsKey(target)) {
+      dropped.add(path);
+    } else {
+      values[target] = value;
+    }
+  }
+  return (values: values, dropped: dropped);
+}
+
+/// The storage path [request] (at or below one of [view]'s rules) reaches.
+String? _storageOf(ViewDef view, String request) {
+  final segs = tryParsePath(request);
+  if (segs == null) return null;
+  for (final rule in view.rules) {
+    final n = tryParsePath(rule.request)?.length;
+    if (n == null || n > segs.length) continue;
+    final m = matchRequest(rule.request, joinPath(segs.take(n)));
+    if (m == null || m.suffix.isNotEmpty) continue;
+    return fillPath(rule.storage, m.bindings, segs.sublist(n));
+  }
+  return null;
+}
+
+/// The request path that writes [storage] through [view]'s most specific
+/// writable rule.
+String? _requestFor(ViewDef view, String? storage) {
+  final segs = storage == null ? null : tryParsePath(storage);
+  if (segs == null) return null;
+  (int, String)? best;
+  for (final rule in view.rules) {
+    if (!rule.access.canWrite) continue;
+    final n = tryParsePath(rule.storage)?.length;
+    if (n == null || n > segs.length || (best != null && best.$1 >= n)) continue;
+    final m = matchRequest(rule.storage, joinPath(segs.take(n)));
+    if (m == null || m.suffix.isNotEmpty) continue;
+    final request = fillPath(rule.request, m.bindings, segs.sublist(n));
+    if (hasPlaceholders(request)) continue;
+    best = (n, request);
+  }
+  return best?.$2;
+}
 
 /// Whether [path] (a request path a device answered with, possibly below a
 /// rule's own request) reaches storage that [schema] marks secret through

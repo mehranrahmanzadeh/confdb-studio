@@ -98,9 +98,22 @@ The left pane lists devices (`<serial>.<model>.<brand-id>`, or paste
 `snap known serial` output) grouped by brand and model; the right pane shows
 the activity for the selection. **New message** opens a composer: targets,
 action and view, keys or values, then review and **Sign & send**. A failed
-device can be retried, and a request duplicated. Values the schema marks
+device can be retried, and a request duplicated. **Modify values** on a
+device's answer to a `get` opens a `set` to that device, filled in with the
+values it sent back (mapped through storage when you pick another view of the
+schema; secrets are left out). Values the schema marks
 secret are masked; for views whose schema Studio doesn't have, answers are
 hidden until you choose **Show values**.
+
+Requests are sent in named sessions, chosen with the session menu above the
+activity. Each session has its own requests and answers, and sessions with
+requests still waiting are polled even when another one is selected. The
+message service only knows session IDs, so Studio keeps the names locally.
+**Refresh session list** adds sessions opened outside Studio as unnamed and
+marks ones the service no longer has as gone; a gone session is opened again
+with the next message sent in it. Removing a session removes it from the
+service, dropping requests devices haven't collected yet. The first message
+opens a "Default session" when there's none.
 
 Open **Settings** on the tab to set:
 
@@ -122,8 +135,8 @@ Open **Settings** on the tab to set:
 - **Signing key**: a `snap keys` key registered to the account, and how long
   requests stay valid.
 
-Settings, devices and request history are saved in `remote.json` under the app
-data dir. With the default sample backend, the tab uses made-up devices that
+Settings, devices, session names and request history are saved in
+`remote.json` under the app data dir. With the default sample backend, the tab uses made-up devices that
 answer after a few seconds.
 
 Each device needs the schema, remote device management, and a delegation of

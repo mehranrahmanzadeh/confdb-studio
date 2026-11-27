@@ -6,6 +6,7 @@ import 'package:confdb_studio/data/remote/fake_message_service.dart';
 import 'package:confdb_studio/data/remote/message_service.dart';
 import 'package:confdb_studio/data/remote/remote_models.dart';
 import 'package:confdb_studio/domain/remote.dart';
+import 'package:confdb_studio/screens/remote/remote_schemas.dart';
 import 'package:confdb_studio/screens/remote/remote_screen.dart';
 import 'package:confdb_studio/state/app_scope.dart';
 import 'package:confdb_studio/state/remote_controller.dart';
@@ -75,7 +76,42 @@ AcLBcwQAAQoAHRYhBA''';
     expect(r.status, MessageStatus.success);
     expect(r.device, 's.m.generic');
     expect(flattenValues(r.values!), [('https.url', 'https://remote.example.com')]);
+    expect(RemoteResponse.fromJson(r.toJson()).assertion, text, reason: 'the signed answer is kept');
     expect(() => RemoteResponse.fromAssertion('type: serial\n\nsig'), throwsFormatException);
+
+    final masked = replaceAssertionBody(text, '{"values":{"https":"••"}}');
+    expect(parseAssertion(masked).body, '{"values":{"https":"••"}}');
+    expect(masked, startsWith('type: response-message\n'));
+    expect(masked, endsWith('\n\nAcLB'));
+  });
+
+  test('values read through one view are carried to the paths another view writes', () {
+    final state = networkRev4.view('wifi-state');
+    final admin = networkRev4.view('wifi-admin');
+    final read = flattenValues({'ssid': 'lobby', 'band': '5GHz', 'status': 'up'});
+    final toAdmin = carryValues(read, from: state, to: admin);
+    expect(toAdmin.values, {'ssid': 'lobby', 'band': '5GHz'});
+    expect(toAdmin.dropped, ['status'], reason: 'status is read-only through wifi-admin');
+    expect(carryValues(read, from: admin, to: state).values, {'band': '5GHz'});
+    expect(carryValues(read).values, {'ssid': 'lobby', 'band': '5GHz', 'status': 'up'}, reason: 'kept as is without the schema');
+
+    const proxyState = ViewDef(
+      name: 'proxy-state',
+      rules: [ViewRule(request: '{proto}', storage: 'proxy.{proto}', access: RuleAccess.read)],
+    );
+    const proxyAdmin = ViewDef(
+      name: 'proxy-admin',
+      rules: [ViewRule(request: '{proto}.url', storage: 'proxy.{proto}.url', access: RuleAccess.readWrite)],
+    );
+    final proxy = carryValues(
+      flattenValues({
+        'https': {'url': 'https://p', 'bypass': 'x'},
+      }),
+      from: proxyState,
+      to: proxyAdmin,
+    );
+    expect(proxy.values, {'https.url': 'https://p'});
+    expect(proxy.dropped, ['https.bypass']);
   });
 
   test('secret storage stays secret through a view', () {
@@ -87,6 +123,29 @@ AcLBcwQAAQoAHRYhBA''';
   test('the sessions URL fills in the account', () {
     const s = RemoteSettings(storeUrl: 'http://test-store.lxd/', account: 'acct');
     expect(s.sessionsUri.toString(), 'http://test-store.lxd/publishergw/v1/brand/acct/messages/sessions');
+  });
+
+  test('state saved before named sessions keeps its session and requests', () {
+    final legacy = sampleRemoteState().toJson()
+      ..['session'] = 'OLDSESSION'
+      ..['ack-token'] = 'tok7'
+      ..['requests'] = [
+        {
+          'message-id': 'req1',
+          'action': 'get',
+          'view': _wifi.path,
+          'devices': [_gw1.id],
+          'created': '2026-01-01T12:00:00Z',
+          'valid-until': '2026-01-01T13:00:00Z',
+        },
+      ];
+    final state = RemoteState.fromJson(legacy);
+    final s = state.sessions.single;
+    expect((s.id, s.name, s.ackToken, s.service), ('OLDSESSION', 'Default session', 'tok7', state.settings.serviceKey));
+    expect(state.current, 'OLDSESSION');
+    expect(state.requests.single.session, 'OLDSESSION');
+    final again = RemoteState.fromJson(state.toJson());
+    expect((again.sessions.single.key, again.requests.single.session), ('OLDSESSION', 'OLDSESSION'));
   });
 
   group('RemoteController', () {
@@ -123,7 +182,7 @@ AcLBcwQAAQoAHRYhBA''';
       expect(done.stateOf(_core.id, time), DeviceRequestState.unauthorized);
       expect(remote.waitingCount, 0);
 
-      final left = await service.exchange(remote.session!, limit: 10);
+      final left = await service.exchange(remote.currentSession!.id!, limit: 10);
       expect(left.messages, isEmpty, reason: 'answers are acknowledged once filed');
     });
 
@@ -138,11 +197,51 @@ AcLBcwQAAQoAHRYhBA''';
 
     test('opens a new session when the service lost the old one', () async {
       await remote.send(action: RemoteAction.get, view: _wifi, devices: [_gw1]);
-      final first = remote.session;
+      final first = remote.currentSession!;
       service.failNext = const MessageServiceException('session not found', status: 404);
       final r = await remote.send(action: RemoteAction.get, view: _wifi, devices: [_gw1]);
       expect(r.sent, isTrue);
-      expect(remote.session, isNot(first));
+      expect(remote.sessions, hasLength(1));
+      expect(remote.currentSession!.id, isNot(first.id));
+      expect(remote.currentSession!.name, RemoteController.defaultSessionName, reason: 'reopened under the same name');
+      expect(remote.requests, hasLength(2));
+    });
+
+    test('keeps requests and answers apart per named session', () async {
+      final debug = await remote.createSession('Debug session');
+      final a = await remote.send(action: RemoteAction.get, view: _wifi, devices: [_gw1]);
+      final prod = await remote.createSession('Rollout');
+      final b = await remote.send(action: RemoteAction.get, view: _wifi, devices: [_gw1]);
+      expect((a.session, b.session), (debug.key, prod.key));
+      expect(remote.requests.map((r) => r.messageId), [b.messageId], reason: 'only the selected session');
+
+      await remote.pollNow();
+      expect(remote.waitingCount, 0, reason: 'every session with waiting requests is polled');
+      await remote.selectSession(debug.key);
+      expect(remote.requests.single.stateOf(_gw1.id, time), DeviceRequestState.success);
+
+      await remote.renameSession(debug.key, ' Debug 2 ');
+      expect(remote.currentSession!.displayName, 'Debug 2');
+    });
+
+    test('refreshing adopts sessions opened elsewhere and marks lost ones gone', () async {
+      final mine = await remote.createSession('Mine');
+      final other = await service.createSession();
+      await service.removeSession(mine.id!);
+      await remote.refreshSessions();
+      expect(remote.session(mine.key)!.gone, isTrue);
+      final adopted = remote.session(other)!;
+      expect((adopted.id, adopted.name), (other, ''));
+      expect(adopted.displayName, startsWith('Unnamed session'));
+    });
+
+    test('removing a session removes it from the service with its requests', () async {
+      final s = await remote.createSession('Scratch');
+      await remote.send(action: RemoteAction.get, view: _wifi, devices: [_gw1]);
+      await remote.removeSession(s.key);
+      expect(await service.listSessions(), isEmpty);
+      expect(remote.sessions, isEmpty);
+      expect(remote.allRequests, isEmpty);
     });
 
     test('concurrent sends share one new session', () async {
@@ -202,6 +301,34 @@ AcLBcwQAAQoAHRYhBA''';
     expect(find.text('Sign & send'), findsNothing, reason: 'starts at the first step');
     expect(find.text('Targets'), findsWidgets);
   });
+  testWidgets('a named session is opened from the session picker', (tester) async {
+    tester.view.physicalSize = const Size(1440, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      ConfdbStudioApp(
+        repository: FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remote'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('No session'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New session…'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField)), 'Debug session');
+    await tester.pump();
+    await tester.tap(find.text('Open session'));
+    await tester.pumpAndSettle();
+
+    final remote = tester.element(find.byType(RemoteScreen)).remote;
+    expect(remote.currentSession!.name, 'Debug session');
+    expect(find.descendant(of: find.byType(SessionPicker), matching: find.text('Debug session')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
   testWidgets('a secret set through the composer stays masked', (tester) async {
     tester.view.physicalSize = const Size(1440, 1200);
     tester.view.devicePixelRatio = 1;
@@ -238,12 +365,103 @@ AcLBcwQAAQoAHRYhBA''';
     expect(find.textContaining('hunter2'), findsNothing, reason: 'the review masks secrets');
 
     await tester.tap(find.text('Sign & send'));
-    await tester.pumpAndSettle();
+    // The waiting badge's spinner never settles.
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
     expect(dialog, findsNothing);
     expect(find.textContaining('psk = ••••••'), findsOneWidget);
     expect(find.textContaining('hunter2'), findsNothing);
     final remote = tester.element(find.byType(RemoteScreen)).remote;
     expect(remote.requests.single.values, {'psk': 'hunter2hunter2'}, reason: 'masking is for display only');
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets("a device's signed response is shown with secrets masked", (tester) async {
+    tester.view.physicalSize = const Size(1440, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      ConfdbStudioApp(
+        repository: FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remote'));
+    await tester.pumpAndSettle();
+    final remote = tester.element(find.byType(RemoteScreen)).remote;
+    await tester.runAsync(() => remote.send(action: RemoteAction.get, view: _wifi, devices: [_gw1], keys: ['ssid', 'psk']));
+    // The sample devices answer after a few seconds of real time.
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 4200)));
+    await tester.runAsync(remote.pollNow);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.textContaining('ssid, psk').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Signed response'));
+    await tester.pumpAndSettle();
+    final shown = tester
+        .widget<SelectableText>(find.byWidgetPredicate((w) => w is SelectableText && (w.data ?? '').startsWith('type: response-message')))
+        .data!;
+    expect(shown, contains('"psk":"${ValueMasker.mask}"'));
+    expect(shown, contains('acme-lobby'));
+    expect(shown, isNot(contains('correct-horse-battery')));
+    expect(remote.allRequests.single.responses[_gw1.id]!.assertion, contains('correct-horse-battery'));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets("a device's answer opens a set to it, filled in for the chosen view", (tester) async {
+    tester.view.physicalSize = const Size(1440, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      ConfdbStudioApp(
+        repository: FakeConfdbRepository(scenario: const FakeScenario(latency: Duration.zero)),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Remote'));
+    await tester.pumpAndSettle();
+    final remote = tester.element(find.byType(RemoteScreen)).remote;
+    await tester.runAsync(() => remote.send(action: RemoteAction.get, view: _wifi, devices: [_gw1], keys: ['ssid', 'psk', 'band']));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 4200)));
+    await tester.runAsync(remote.pollNow);
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('ssid, psk, band').first);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Modify values'));
+    await tester.pumpAndSettle();
+    final dialog = find.byType(Dialog);
+    final set = tester.widget<SegmentedButton<RemoteAction>>(find.byType(SegmentedButton<RemoteAction>));
+    expect(set.selected, {RemoteAction.set});
+    expect(find.descendant(of: dialog, matching: find.widgetWithText(TextField, _wifi.path)), findsOneWidget);
+
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    List<(String, String)> rows() {
+      String text(String label, int i) => tester
+          .widgetList<TextField>(find.descendant(of: dialog, matching: find.widgetWithText(TextField, label)))
+          .elementAt(i)
+          .controller!
+          .text;
+      final n = find.descendant(of: dialog, matching: find.widgetWithText(TextField, 'Key')).evaluate().length;
+      return [for (var i = 0; i < n; i++) (text('Key', i), text('Value', i))];
+    }
+
+    expect(rows(), [('ssid', 'acme-lobby'), ('band', '5GHz')], reason: 'the secret psk is never filled in');
+    expect(find.textContaining('Not filled in: psk (secret)'), findsOneWidget);
+
+    // Through wifi-state only band can be written.
+    await tester.tap(find.text('Back'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.descendant(of: dialog, matching: find.byType(TextField)).first, '$acmeAccountId/network/wifi-state');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Next'));
+    await tester.pumpAndSettle();
+    expect(rows(), [('band', '5GHz')]);
+    expect(find.textContaining('Not filled in: psk (secret), ssid'), findsOneWidget);
     await tester.pumpWidget(const SizedBox());
   });
 }

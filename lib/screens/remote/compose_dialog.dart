@@ -24,6 +24,7 @@ class ComposeDraft {
     this.devices = const [],
     this.keys = const [],
     this.values = const {},
+    this.received,
   });
 
   factory ComposeDraft.of(RemoteRequest r) => ComposeDraft(
@@ -38,6 +39,18 @@ class ComposeDraft {
   final String view;
   final List<DeviceId> devices;
   final List<String> keys;
+  final Map<String, Object?> values;
+
+  /// A device's answer to a `get`, filled in as the values to set once the
+  /// view is chosen.
+  final ReceivedValues? received;
+}
+
+/// Values a device sent back for [view], from [device] (its display name).
+class ReceivedValues {
+  const ReceivedValues({required this.view, required this.device, required this.values});
+  final String view;
+  final String device;
   final Map<String, Object?> values;
 }
 
@@ -106,6 +119,12 @@ class _ComposeDialogState extends State<_ComposeDialog> {
   bool _sending = false;
   String? _error;
 
+  /// The view the value rows were last filled in for from the received
+  /// values, what they were then, and the received paths left out.
+  String? _filledFor;
+  String _filledRows = '';
+  List<String> _notFilled = const [];
+
   @override
   void initState() {
     super.initState();
@@ -167,6 +186,40 @@ class _ComposeDialogState extends State<_ComposeDialog> {
   }
 
   bool get _canNext => _stepDone(_step);
+
+  void _goTo(int step) => setState(() {
+    if (step == 2) _fillReceived();
+    _step = step;
+  });
+
+  /// Fills the value rows from the received values for the chosen view,
+  /// unless the user has changed them since.
+  void _fillReceived() {
+    final received = widget.draft.received;
+    final view = _view.text.trim();
+    if (received == null || _action != RemoteAction.set || view == _filledFor) return;
+    final current = _setValues;
+    if (current == null || (current.isNotEmpty && jsonEncode(current) != _filledRows)) return;
+    final secret = widget.schemas.masker(received.view);
+    final def = widget.schemas.schemaOf(received.view)?.view(received.view.split('/').last);
+    final leaves = flattenValues(received.values);
+    final secrets = [
+      for (final (path, _) in leaves)
+        if (secret.isSecret(path)) path,
+    ];
+    final carried = carryValues(leaves.where((l) => !secret.isSecret(l.$1)), from: def, to: _viewDef);
+    for (final r in _values) {
+      r.dispose();
+    }
+    _values
+      ..clear()
+      ..addAll([for (final e in carried.values.entries) _ValueRow(e.key, _valueText(e.value))]);
+    if (_values.isEmpty) _values.add(_ValueRow());
+    _values.forEach(_listen);
+    _filledFor = view;
+    _filledRows = jsonEncode(_setValues);
+    _notFilled = [...secrets.map((p) => '$p (secret)'), ...carried.dropped];
+  }
 
   bool _stepDone(int step) => switch (step) {
     0 => _targets.isNotEmpty,
@@ -230,7 +283,7 @@ class _ComposeDialogState extends State<_ComposeDialog> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _StepBar(step: _step, onStep: (i) => setState(() => _step = i), enabledUpTo: _maxReachable()),
+            _StepBar(step: _step, onStep: _goTo, enabledUpTo: _maxReachable()),
             const SizedBox(height: 16),
             Expanded(child: SingleChildScrollView(child: body)),
             if (_error != null) ...[
@@ -249,7 +302,7 @@ class _ComposeDialogState extends State<_ComposeDialog> {
         TextButton(onPressed: _sending ? null : () => Navigator.of(context).pop(), child: const Text('Cancel')),
         if (_step > 0) SecondaryButton(label: 'Back', icon: AppIcons.back, onPressed: _sending ? null : () => setState(() => _step--)),
         if (_step < 3)
-          PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: _canNext ? () => setState(() => _step++) : null)
+          PrimaryButton(label: 'Next', icon: AppIcons.next, onPressed: _canNext ? () => _goTo(_step + 1) : null)
         else
           PrimaryButton(
             label: _sending ? 'Signing & sending…' : 'Sign & send',
@@ -356,7 +409,7 @@ class _ComposeDialogState extends State<_ComposeDialog> {
   Widget _viewStep() {
     final remote = context.remote;
     final c = context.colors;
-    final history = {for (final r in remote.requests) r.view};
+    final history = {for (final r in remote.allRequests) r.view};
     final options = {...history, ...widget.schemas.views}.toList();
     final def = _viewDef;
     final muted = context.text.bodySmall?.copyWith(color: c.onSurfaceVariant);
@@ -528,6 +581,14 @@ class _ComposeDialogState extends State<_ComposeDialog> {
           'All of them are written in one change on each device, and a custodian may reject it.',
           style: muted,
         ),
+        if (widget.draft.received case final received? when _filledFor != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            'Filled in from ${received.device}’s answer through ${context.aliased(received.view)}.'
+            '${_notFilled.isEmpty ? '' : ' Not filled in: ${_notFilled.join(', ')}.'}',
+            style: muted,
+          ),
+        ],
         const SizedBox(height: 12),
         for (final (i, r) in _values.indexed) ...[
           Builder(

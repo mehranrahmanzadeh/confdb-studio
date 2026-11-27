@@ -111,6 +111,7 @@ class _RemoteScreenState extends State<RemoteScreen> {
           expanded: _expanded,
           onToggle: (id) => setState(() => _expanded.contains(id) ? _expanded.remove(id) : _expanded.add(id)),
           onDuplicate: (r) => _compose(ComposeDraft.of(r)),
+          onModify: _compose,
           onCompose: _compose,
         );
         final c = context.colors;
@@ -219,9 +220,11 @@ class _PollErrorBanner extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
       child: InlineMessage(
         kind: MessageKind.error,
-        title: gone ? 'The message session is gone' : 'Couldn’t check for answers',
+        title: gone
+            ? '${remote.pollErrorSession ?? 'The message session'} is gone from the message service'
+            : 'Couldn’t check for answers${remote.pollErrorSession == null ? '' : ' in ${remote.pollErrorSession}'}',
         body: gone
-            ? const Text('Requests devices hadn’t collected were dropped with it. A new session opens with the next message.')
+            ? const Text('Requests devices hadn’t collected were dropped with it. It’s opened again with the next message sent in it.')
             : CodeText('$error'),
         actions: [
           if (!gone) OnContainerButton(label: 'Retry', icon: AppIcons.retry, onPressed: remote.pollNow),
@@ -367,7 +370,7 @@ class _DeviceDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final remote = context.remote;
-    final last = remote.requests.where((r) => r.devices.contains(device)).firstOrNull;
+    final last = remote.allRequests.where((r) => r.devices.contains(device)).firstOrNull;
     final state = last?.stateOf(device, remote.now);
     final (kind, label) = state == null ? (StatusKind.neutral, 'No requests yet') : _deviceState(state);
     final (_, fg, icon) = StatusBadge.colorsFor(context, kind);
@@ -424,6 +427,7 @@ class _ActivityPane extends StatelessWidget {
     required this.expanded,
     required this.onToggle,
     required this.onDuplicate,
+    required this.onModify,
     required this.onCompose,
   });
 
@@ -432,6 +436,7 @@ class _ActivityPane extends StatelessWidget {
   final Set<String> expanded;
   final ValueChanged<String> onToggle;
   final ValueChanged<RemoteRequest> onDuplicate;
+  final ValueChanged<ComposeDraft> onModify;
   final VoidCallback onCompose;
 
   @override
@@ -454,11 +459,11 @@ class _ActivityPane extends StatelessWidget {
             action: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _SessionInfo(remote: remote),
+                const SessionPicker(),
                 const SizedBox(width: 8),
                 IconButton(
                   tooltip: 'Check for answers now',
-                  onPressed: remote.session == null || remote.polling ? null : remote.pollNow,
+                  onPressed: remote.currentSession?.id == null || remote.polling ? null : remote.pollNow,
                   icon: remote.polling
                       ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(AppIcons.retry),
@@ -467,15 +472,15 @@ class _ActivityPane extends StatelessWidget {
                   tooltip: 'More',
                   onSelected: (v) async {
                     if (v == 'clear') await remote.clearFinished();
-                    if (v == 'reset' && context.mounted) await _confirmReset(context);
                   },
-                  itemBuilder: (_) => [
-                    PopupMenuItem(value: 'clear', enabled: finished > 0, child: const Text('Clear finished requests')),
-                    PopupMenuItem(value: 'reset', enabled: remote.session != null, child: const Text('Start a new session…')),
-                  ],
+                  itemBuilder: (_) => [PopupMenuItem(value: 'clear', enabled: finished > 0, child: const Text('Clear finished requests'))],
                 ),
               ],
             ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _SessionInfo(remote: remote),
           ),
           if (scopeLabel != null)
             Padding(
@@ -488,7 +493,7 @@ class _ActivityPane extends StatelessWidget {
               padding: const EdgeInsets.only(top: 24),
               child: EmptyState(
                 icon: AppIcons.send,
-                title: 'No requests yet',
+                title: remote.currentSession == null ? 'No requests yet' : 'No requests in this session',
                 body: const Text('Send a get or set to one or more devices. Answers show up here once the devices next check in.'),
                 actions: [
                   if (remote.settings.isComplete && remote.devices.isNotEmpty)
@@ -505,6 +510,7 @@ class _ActivityPane extends StatelessWidget {
                 expanded: expanded.contains(r.messageId),
                 onToggle: () => onToggle(r.messageId),
                 onDuplicate: () => onDuplicate(r),
+                onModify: onModify,
                 scope: scope,
               ),
               const SizedBox(height: 8),
@@ -512,20 +518,6 @@ class _ActivityPane extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  Future<void> _confirmReset(BuildContext context) async {
-    final remote = context.remote;
-    final ok = await confirmDestructive(
-      context,
-      title: const Text('Start a new session?'),
-      body: const Text(
-        'The current session is removed from the message service. Requests devices haven’t collected yet are dropped, '
-        'and answers still on their way won’t arrive.',
-      ),
-      action: 'Start new session',
-    );
-    if (ok) await remote.resetSession();
   }
 }
 
@@ -544,25 +536,227 @@ class _SessionInfo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final muted = context.text.bodySmall?.copyWith(color: context.colors.onSurfaceVariant);
-    final session = remote.session;
+    final session = remote.currentSession;
     final waiting = remote.waitingCount;
+    final here = session == null ? 0 : remote.waitingIn(session.key);
     final last = remote.lastPoll;
     final parts = [
-      if (session == null) 'No session yet' else 'Session ${session.length > 8 ? '${session.substring(0, 8)}…' : session}',
-      if (waiting > 0) '${plural(waiting, 'request')} waiting',
+      if (session == null)
+        'A session opens with the first message'
+      else if (session.gone)
+        'Gone from the message service; reopened with the next message'
+      else
+        'Session ${session.id}',
+      if (here > 0) '${plural(here, 'request')} waiting',
+      if (waiting > here) '${waiting - here} waiting in other sessions',
       if (last != null) 'checked ${_ago(last, remote.now)}',
     ];
-    return Tooltip(
-      message: session == null ? 'A session opens with the first message' : 'Session ID: $session',
-      child: Text(parts.join(' · '), style: muted),
+    return Text(parts.join(' · '), style: muted);
+  }
+}
+
+/// Switches, opens, renames and removes message sessions.
+class SessionPicker extends StatelessWidget {
+  const SessionPicker({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final remote = context.remote;
+    return ListenableBuilder(listenable: remote, builder: (context, _) => _build(context, remote));
+  }
+
+  Widget _build(BuildContext context, RemoteController remote) {
+    final current = remote.currentSession;
+    final canConnect = remote.settings.canConnect;
+    return PopupMenuButton<_SessionAction>(
+      tooltip: 'Sessions',
+      onSelected: (a) => _run(context, a),
+      itemBuilder: (context) => [
+        for (final s in remote.sessions)
+          PopupMenuItem(
+            value: _SessionAction('select', s.key),
+            child: ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(s.key == current?.key ? AppIcons.check : null, size: 18),
+              title: Text(s.displayName),
+              subtitle: Text(_sessionDetail(remote, s)),
+            ),
+          ),
+        if (remote.sessions.isNotEmpty) const PopupMenuDivider(),
+        PopupMenuItem(
+          value: const _SessionAction('new'),
+          enabled: canConnect,
+          child: const ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(AppIcons.add, size: 18),
+            title: Text('New session…'),
+          ),
+        ),
+        PopupMenuItem(
+          value: _SessionAction('rename', current?.key),
+          enabled: current != null,
+          child: const ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(AppIcons.edit, size: 18),
+            title: Text('Rename…'),
+          ),
+        ),
+        PopupMenuItem(
+          value: _SessionAction('remove', current?.key),
+          enabled: current != null,
+          child: const ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(AppIcons.delete, size: 18),
+            title: Text('Remove…'),
+          ),
+        ),
+        PopupMenuItem(
+          value: const _SessionAction('refresh'),
+          enabled: canConnect,
+          child: const ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(AppIcons.retry, size: 18),
+            title: Text('Refresh session list'),
+          ),
+        ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 240),
+              child: Text(current?.displayName ?? 'No session', overflow: TextOverflow.ellipsis, style: context.text.labelLarge),
+            ),
+            const Icon(Icons.arrow_drop_down),
+          ],
+        ),
+      ),
     );
   }
+
+  Future<void> _run(BuildContext context, _SessionAction a) async {
+    final remote = context.remote;
+    final messenger = ScaffoldMessenger.of(context);
+    final key = a.key;
+    try {
+      switch (a.kind) {
+        case 'select':
+          await remote.selectSession(key!);
+        case 'new':
+          final name = await _askSessionName(context, title: 'New session', action: 'Open session');
+          if (name != null) await remote.createSession(name);
+        case 'rename':
+          final s = remote.session(key!);
+          if (s == null) return;
+          final name = await _askSessionName(context, title: 'Rename session', action: 'Rename', initial: s.name);
+          if (name != null) await remote.renameSession(key, name);
+        case 'remove':
+          final s = remote.session(key!);
+          if (s == null || !await _confirmRemove(context, s)) return;
+          await remote.removeSession(key);
+        case 'refresh':
+          await remote.refreshSessions();
+      }
+    } on ConfdbException catch (e) {
+      showToast(messenger, CodeText(e.message), kind: MessageKind.error);
+    }
+  }
+
+  Future<bool> _confirmRemove(BuildContext context, RemoteSession s) {
+    final remote = context.remote;
+    final waiting = remote.waitingIn(s.key);
+    return confirmDestructive(
+      context,
+      title: Text('Remove “${s.displayName}”?'),
+      body: Text(
+        '${s.gone ? 'Its requests and answers are removed from Studio.' : 'The session is removed from the message service, and its requests and answers from Studio. '
+                  'Requests devices haven’t collected yet are dropped, and answers still on their way won’t arrive.'}'
+        '${waiting > 0 ? '\n\n${plural(waiting, 'request')} still waiting for an answer.' : ''}',
+      ),
+      action: 'Remove session',
+    );
+  }
+}
+
+@immutable
+class _SessionAction {
+  const _SessionAction(this.kind, [this.key]);
+  final String kind;
+  final String? key;
+}
+
+String _sessionDetail(RemoteController remote, RemoteSession s) {
+  final waiting = remote.waitingIn(s.key);
+  final count = remote.allRequests.where((r) => r.session == s.key).length;
+  return [
+    if (s.gone) 'Gone' else if (s.name.isEmpty) 'Opened outside Studio',
+    if (count > 0) plural(count, 'request') else if (!s.gone) 'No requests',
+    if (waiting > 0) '$waiting waiting',
+  ].join(' · ');
+}
+
+Future<String?> _askSessionName(BuildContext context, {required String title, required String action, String initial = ''}) =>
+    showDialog<String>(
+      context: context,
+      builder: (_) => _SessionNameDialog(title: title, action: action, initial: initial),
+    );
+
+class _SessionNameDialog extends StatefulWidget {
+  const _SessionNameDialog({required this.title, required this.action, required this.initial});
+  final String title;
+  final String action;
+  final String initial;
+
+  @override
+  State<_SessionNameDialog> createState() => _SessionNameDialogState();
+}
+
+class _SessionNameDialogState extends State<_SessionNameDialog> {
+  late final _name = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_name.text.trim().isNotEmpty) Navigator.of(context).pop(_name.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.title),
+    content: SizedBox(
+      width: 400,
+      child: TextField(
+        controller: _name,
+        autofocus: true,
+        decoration: const InputDecoration(labelText: 'Name', hintText: 'Debug session'),
+        onSubmitted: (_) => _submit(),
+      ),
+    ),
+    actions: [
+      TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cancel')),
+      ListenableBuilder(
+        listenable: _name,
+        builder: (context, _) => FilledButton(onPressed: _name.text.trim().isEmpty ? null : _submit, child: Text(widget.action)),
+      ),
+    ],
+  );
 }
 
 (StatusKind, String) _deviceState(DeviceRequestState s) => switch (s) {
   DeviceRequestState.sending => (StatusKind.running, 'Sending…'),
   DeviceRequestState.notSent => (StatusKind.error, 'Not sent'),
-  DeviceRequestState.waiting => (StatusKind.secondary, 'Waiting for device'),
+  DeviceRequestState.waiting => (StatusKind.running, 'Waiting for device'),
   DeviceRequestState.expired => (StatusKind.warning, 'Expired, no answer'),
   DeviceRequestState.success => (StatusKind.success, 'Success'),
   DeviceRequestState.error => (StatusKind.error, 'Failed on device'),
@@ -578,7 +772,7 @@ class _SessionInfo extends StatelessWidget {
   if (states.contains(DeviceRequestState.notSent)) return (StatusKind.error, 'Not sent');
   final answered = r.responses.length;
   if (states.contains(DeviceRequestState.waiting)) {
-    return (StatusKind.secondary, n == 1 ? 'Waiting for device' : 'Waiting · $answered of $n answered');
+    return (StatusKind.running, n == 1 ? 'Waiting for device' : 'Waiting · $answered of $n answered');
   }
   final failed = states.where((s) => s.isFailure).length;
   if (failed == 0) return (StatusKind.success, n == 1 ? 'Success' : 'All $n succeeded');
@@ -606,6 +800,7 @@ class _RequestCard extends StatelessWidget {
     required this.expanded,
     required this.onToggle,
     required this.onDuplicate,
+    required this.onModify,
     required this.scope,
   });
 
@@ -614,6 +809,7 @@ class _RequestCard extends StatelessWidget {
   final bool expanded;
   final VoidCallback onToggle;
   final VoidCallback onDuplicate;
+  final ValueChanged<ComposeDraft> onModify;
   final DeviceScope scope;
 
   @override
@@ -678,7 +874,7 @@ class _RequestCard extends StatelessWidget {
                 ),
               ),
             for (final d in r.devices)
-              if (scope.matchesId(d)) _DeviceAnswer(request: r, device: d, masker: masker),
+              if (scope.matchesId(d)) _DeviceAnswer(request: r, device: d, masker: masker, onModify: onModify),
             ListRow(
               child: Wrap(
                 spacing: 8,
@@ -731,6 +927,28 @@ String _maskAssertion(RemoteRequest r, ValueMasker masker) {
   return r.assertion!.replaceAll(raw.substring(1, raw.length - 1), masked.substring(1, masked.length - 1));
 }
 
+/// The device's signed answer with the values the values table hides masked,
+/// for display.
+String _maskResponse(RemoteResponse r, ValueMasker masker, {required bool revealUnknown}) {
+  final values = r.values;
+  if (values == null || values.isEmpty) return r.assertion!;
+  var hidden = false;
+  Object? mask(String path, Object? v) {
+    if (v is Map && v.isNotEmpty) {
+      return {for (final e in v.entries) e.key: mask(joinTreePath(path, '${e.key}'), e.value)};
+    }
+    if (masker.isSecret(path) || (!masker.knowsSchema && !revealUnknown)) {
+      hidden = true;
+      return ValueMasker.mask;
+    }
+    return v;
+  }
+
+  final body = {...r.body!, 'values': mask('', values)};
+  if (!hidden) return r.assertion!;
+  return replaceAssertionBody(r.assertion!, jsonEncode(body));
+}
+
 class _ActionChip extends StatelessWidget {
   const _ActionChip(this.action);
   final RemoteAction action;
@@ -753,10 +971,11 @@ class _ActionChip extends StatelessWidget {
 }
 
 class _DeviceAnswer extends StatefulWidget {
-  const _DeviceAnswer({required this.request, required this.device, required this.masker});
+  const _DeviceAnswer({required this.request, required this.device, required this.masker, required this.onModify});
   final RemoteRequest request;
   final String device;
   final ValueMasker masker;
+  final ValueChanged<ComposeDraft> onModify;
 
   @override
   State<_DeviceAnswer> createState() => _DeviceAnswerState();
@@ -764,6 +983,16 @@ class _DeviceAnswer extends StatefulWidget {
 
 class _DeviceAnswerState extends State<_DeviceAnswer> {
   bool _reveal = false;
+
+  /// A new `set` to this device, filled in from its answer.
+  void _modify(String name, Map<String, Object?> values) => widget.onModify(
+    ComposeDraft(
+      action: RemoteAction.set,
+      view: widget.request.view,
+      devices: [DeviceId.parse(widget.device)],
+      received: ReceivedValues(view: widget.request.view, device: name, values: values),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -778,6 +1007,12 @@ class _DeviceAnswerState extends State<_DeviceAnswer> {
     final values = response?.values;
     final masker = widget.masker;
     final unknown = !masker.knowsSchema && values != null && values.isNotEmpty;
+    final canModify =
+        r.action == RemoteAction.get &&
+        state == DeviceRequestState.success &&
+        values != null &&
+        values.isNotEmpty &&
+        DeviceId.tryParse(widget.device) != null;
 
     return ListRow(
       child: Column(
@@ -794,8 +1029,9 @@ class _DeviceAnswerState extends State<_DeviceAnswer> {
                   ],
                 ),
               ),
-              if (response?.timestamp != null) ...[Text(_ago(response!.timestamp!, remote.now), style: muted), const SizedBox(width: 12)],
-              StatusBadge(kind: kind, label: label),
+              if (response?.timestamp != null) Text(_ago(response!.timestamp!, remote.now), style: muted),
+              // A single device's state is already the card header's badge.
+              if (r.devices.length > 1) ...[const SizedBox(width: 12), StatusBadge(kind: kind, label: label)],
             ],
           ),
           if (response?.message case final m?) ...[
@@ -827,6 +1063,25 @@ class _DeviceAnswerState extends State<_DeviceAnswer> {
               ),
             _ValuesTable(values: values, masker: masker, revealUnknown: _reveal),
           ],
+          if (response?.assertion != null || canModify)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.start,
+                children: [
+                  if (canModify)
+                    TertiaryButton(
+                      label: 'Modify values',
+                      icon: AppIcons.edit,
+                      onPressed: remote.settings.isComplete ? () => _modify(dev?.name ?? widget.device, values) : null,
+                    ),
+                  if (response?.assertion != null)
+                    CliDisclosure(_maskResponse(response!, masker, revealUnknown: _reveal), label: 'Signed response'),
+                ],
+              ),
+            ),
         ],
       ),
     );

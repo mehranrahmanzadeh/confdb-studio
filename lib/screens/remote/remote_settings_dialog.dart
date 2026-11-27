@@ -112,7 +112,7 @@ class _RemoteSettingsDialogState extends State<_RemoteSettingsDialog> {
     final mono = context.text.bodyMedium?.mono;
     final canTest = !_testing && _urlError == null && s.storeUrl.isNotEmpty && s.account.isNotEmpty && s.hasAuth;
     final remote = context.remote;
-    final dropsSession = remote.session != null && !s.sameService(remote.settings);
+    final dropsSession = remote.sessions.isNotEmpty && !s.sameService(remote.settings);
 
     return AlertDialog(
       title: const Text('Remote settings'),
@@ -234,8 +234,11 @@ class _RemoteSettingsDialogState extends State<_RemoteSettingsDialog> {
                 const InlineMessage(
                   kind: MessageKind.warning,
                   padding: EdgeInsets.all(12),
-                  title: 'A new session will be opened',
-                  body: Text('Answers to requests sent through the current service won’t arrive.'),
+                  title: 'This is a different message service',
+                  body: Text(
+                    'Its sessions are listed instead of the current ones. Answers in the current sessions are '
+                    'collected again when you switch back.',
+                  ),
                 ),
               ],
               if (_testResult case (final ok, final message)) ...[

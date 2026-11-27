@@ -41,6 +41,8 @@ jobs:
 
   screenshots:
     name: Screenshots
+    # Temporarily disabled together with the screenshot-comment job.
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

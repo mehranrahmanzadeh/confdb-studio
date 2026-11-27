@@ -10,11 +10,13 @@ import '../domain/remote.dart';
 /// The Remote tab: devices, the requests sent to them through the Store's
 /// message service, and their answers.
 ///
-/// Requests are sent in one session that's kept across runs (removing it
-/// would drop requests devices haven't collected yet). While any request is
-/// waiting for an answer, the session is polled — every few seconds at
-/// first, backing off to every 30 seconds. Each response is saved before
-/// it's acknowledged, and answers seen twice are recorded once.
+/// Requests are sent in named sessions, kept across runs (removing one
+/// drops the requests devices haven't collected yet); the service only
+/// knows their IDs, so the names are kept here. Each session queues the
+/// answers to its own requests. While any request is waiting for an
+/// answer, its session is polled — every few seconds at first, backing off
+/// to every 30 seconds. Each response is saved before it's acknowledged,
+/// and answers seen twice are recorded once.
 class RemoteController extends ChangeNotifier {
   RemoteController({
     required this.connect,
@@ -30,6 +32,9 @@ class RemoteController extends ChangeNotifier {
       Duration(seconds: 30),
     ],
   }) : _clock = clock ?? DateTime.now;
+
+  /// The name of the session opened when a message is sent with none.
+  static const defaultSessionName = 'Default session';
 
   /// Builds the client for the settings in use.
   final MessageService Function(RemoteSettings settings) connect;
@@ -52,30 +57,64 @@ class RemoteController extends ChangeNotifier {
   Timer? _pollTimer;
   Timer? _expiryTimer;
   Object? _pollError;
+  String? _pollErrorSession;
   DateTime? _lastPoll;
   Future<void>? _loading;
-  Future<String>? _opening;
+  Future<RemoteSession>? _creatingDefault;
+  final _opening = <String, Future<String>>{};
 
   bool get loaded => _loaded;
   RemoteSettings get settings => _state.settings;
   List<RemoteDevice> get devices => _state.devices;
 
-  /// Newest first.
-  List<RemoteRequest> get requests => _state.requests;
-  String? get session => _state.session;
+  /// The sessions on the service in [settings], oldest first.
+  List<RemoteSession> get sessions => [
+    for (final s in _state.sessions)
+      if (s.service == settings.serviceKey) s,
+  ];
+
+  /// The selected session, or the first when none is.
+  RemoteSession? get currentSession => sessions.where((s) => s.key == _state.current).firstOrNull ?? sessions.firstOrNull;
+
+  RemoteSession? session(String key) => _state.sessions.where((s) => s.key == key).firstOrNull;
+
+  /// The current session's requests, newest first.
+  List<RemoteRequest> get requests {
+    final key = currentSession?.key;
+    if (key == null) return const [];
+    return [
+      for (final r in _state.requests)
+        if (r.session == key) r,
+    ];
+  }
+
+  /// Requests in every session on this service, newest first.
+  List<RemoteRequest> get allRequests {
+    final keys = {for (final s in sessions) s.key};
+    return [
+      for (final r in _state.requests)
+        if (keys.contains(r.session)) r,
+    ];
+  }
 
   /// Why the last poll failed, until one succeeds.
   Object? get pollError => _pollError;
+
+  /// The name of the session the last poll failed for.
+  String? get pollErrorSession => _pollErrorSession;
   DateTime? get lastPoll => _lastPoll;
   bool get polling => _polling;
   DateTime get now => _clock();
 
-  /// Requests still waiting for an answer from some device.
-  int get waitingCount => requests.where((r) => r.isWaitingAt(now)).length;
+  /// Requests in any session still waiting for an answer from some device.
+  int get waitingCount => allRequests.where((r) => r.isWaitingAt(now)).length;
+
+  /// Requests in [key] still waiting for an answer.
+  int waitingIn(String key) => _state.requests.where((r) => r.session == key && r.isWaitingAt(now)).length;
 
   RemoteDevice? device(String id) => devices.where((d) => d.id.id == id).firstOrNull;
 
-  RemoteRequest? request(String messageId) => requests.where((r) => r.messageId == messageId).firstOrNull;
+  RemoteRequest? request(String messageId) => _state.requests.where((r) => r.messageId == messageId).firstOrNull;
 
   Future<void> load() => _loading ??= _load();
 
@@ -85,6 +124,7 @@ class RemoteController extends ChangeNotifier {
     _loaded = true;
     _notify();
     _schedule();
+    _refreshQuietly();
   }
 
   /// Fills in the account when none is set, e.g. from the Store login.
@@ -93,46 +133,139 @@ class RemoteController extends ChangeNotifier {
     if (settings.account.isEmpty && account.isNotEmpty) await updateSettings(settings.copyWith(account: account));
   }
 
+  /// Sessions are kept per service, so switching back to one shows its
+  /// sessions again.
   Future<void> updateSettings(RemoteSettings next) async {
     await load();
     final sameService = next.sameService(settings);
-    _state = RemoteState(
-      settings: next,
-      devices: devices,
-      requests: requests,
-      session: sameService ? session : null,
-      ackToken: sameService ? _state.ackToken : null,
-    );
+    _state = _state.copyWith(settings: next, current: sameService ? _state.current : null);
     _service = null;
     _pollError = null;
+    _pollErrorSession = null;
+    await _save();
+    _schedule();
+    if (!sameService) _refreshQuietly();
+  }
+
+  /// Shows [key]'s requests, and checks it for answers.
+  Future<void> selectSession(String key) async {
+    _state = _state.copyWith(current: key);
+    await _save();
+    _pollStep = 0;
+    _schedule();
+    if (session(key)?.id != null) unawaited(_poll());
+  }
+
+  /// Opens a session on the service and selects it.
+  Future<RemoteSession> createSession(String name) async {
+    await load();
+    _requireConnection();
+    final id = await _api.createSession();
+    final s = RemoteSession(key: id, id: id, service: settings.serviceKey, name: name.trim(), created: now);
+    _state = _state.copyWith(sessions: [..._state.sessions.where((e) => e.key != id), s], current: s.key);
+    await _save();
+    return s;
+  }
+
+  /// Names are only kept by Studio; the service doesn't know them.
+  Future<void> renameSession(String key, String name) async {
+    _updateSession(key, (s) => s.copyWith(name: name.trim()));
+    await _save();
+  }
+
+  /// Removes [key] from the service, with its requests and answers.
+  /// Requests devices haven't collected yet are dropped by the service, and
+  /// answers still on their way are lost.
+  Future<void> removeSession(String key) async {
+    final s = session(key);
+    if (s == null) return;
+    final id = s.id;
+    if (id != null) {
+      try {
+        await _api.removeSession(id);
+      } on MessageServiceException catch (e) {
+        if (!e.sessionGone) rethrow;
+      }
+    }
+    _state = _state.copyWith(
+      sessions: [..._state.sessions.where((e) => e.key != key)],
+      requests: [..._state.requests.where((r) => r.session != key)],
+      current: _state.current == key ? null : _state.current,
+    );
+    if (_pollErrorSession == s.displayName) {
+      _pollError = null;
+      _pollErrorSession = null;
+    }
     await _save();
     _schedule();
   }
 
+  /// Matches the sessions with the service's: sessions opened elsewhere are
+  /// added unnamed, and ones the service no longer has are marked gone.
+  Future<void> refreshSessions() async {
+    await load();
+    _requireConnection();
+    final service = settings.serviceKey;
+    final ids = await _api.listSessions();
+    final known = {
+      for (final s in _state.sessions)
+        if (s.service == service && s.id != null) s.id,
+    };
+    _state = _state.copyWith(
+      sessions: [
+        for (final s in _state.sessions)
+          if (s.service == service && s.id != null && !ids.contains(s.id)) s.copyWith(id: null, ackToken: null) else s,
+        for (final id in ids)
+          if (!known.contains(id)) RemoteSession(key: id, id: id, service: service),
+      ],
+    );
+    await _save();
+    _schedule();
+  }
+
+  void _refreshQuietly() {
+    if (!settings.canConnect) return;
+    unawaited(
+      refreshSessions().catchError((Object _) {
+        // Shown when a request is sent or the list is refreshed by hand.
+      }, test: (e) => e is ConfdbException),
+    );
+  }
+
+  void _requireConnection() {
+    if (!settings.canConnect) throw const ConfdbException('Finish the Remote settings first');
+  }
+
   Future<void> addDevice(RemoteDevice d) async {
     await load();
-    _state = _with(devices: [...devices.where((e) => e.id != d.id), d]);
+    _state = _state.copyWith(devices: [...devices.where((e) => e.id != d.id), d]);
     await _save();
   }
 
   Future<void> removeDevice(DeviceId id) async {
-    _state = _with(devices: [...devices.where((e) => e.id != id)]);
+    _state = _state.copyWith(devices: [...devices.where((e) => e.id != id)]);
     await _save();
   }
 
   Future<void> deleteRequest(String messageId) async {
-    _state = _with(requests: [...requests.where((r) => r.messageId != messageId)]);
+    _state = _state.copyWith(requests: [..._state.requests.where((r) => r.messageId != messageId)]);
     await _save();
   }
 
-  /// Drops every request no device is still expected to answer.
+  /// Drops every request in the current session no device is still
+  /// expected to answer.
   Future<void> clearFinished() async {
-    _state = _with(requests: [...requests.where((r) => r.isWaitingAt(now) || !r.sent && r.sendError == null)]);
+    final key = currentSession?.key;
+    _state = _state.copyWith(
+      requests: [..._state.requests.where((r) => r.session != key || r.isWaitingAt(now) || !r.sent && r.sendError == null)],
+    );
     await _save();
   }
 
-  /// Signs a request for [devices] and sends it. A failure to sign is thrown;
-  /// a failure to send is recorded on the returned request.
+  /// Signs a request for [devices] and sends it in the current session,
+  /// opening a [defaultSessionName] session when there's none. A failure to
+  /// sign or to open that session is thrown; a failure to send is recorded
+  /// on the returned request.
   Future<RemoteRequest> send({
     required RemoteAction action,
     required ViewRef view,
@@ -143,12 +276,13 @@ class RemoteController extends ChangeNotifier {
     await load();
     final s = settings;
     if (!s.isComplete) throw const ConfdbException('Finish the Remote settings first');
+    final target =
+        currentSession ?? await (_creatingDefault ??= createSession(defaultSessionName).whenComplete(() => _creatingDefault = null));
     final body = confdbMessageBody(action: action, view: view, keys: keys, values: values);
     final created = now;
-    var id = newMessageId();
-    var assertion = await _sign(s, id, devices, body, created);
-    var req = RemoteRequest(
+    RemoteRequest build(String id, String assertion) => RemoteRequest(
       messageId: id,
+      session: target.key,
       action: action,
       view: view.path,
       devices: [for (final d in devices) d.id],
@@ -158,31 +292,22 @@ class RemoteController extends ChangeNotifier {
       values: values,
       assertion: assertion,
     );
+    var id = newMessageId();
+    var req = build(id, await _sign(s, id, devices, body, created));
     _put(req);
     await _save();
     try {
       try {
-        await _exchangeWithSession((session) => _api.exchange(session, send: [assertion]));
+        await _exchangeIn(target.key, (session) => _api.exchange(session, send: [req.assertion!]));
       } on MessageServiceException catch (e) {
         if (!e.duplicateId) rethrow;
         // Someone used the ID before; sign again under a new one.
         final old = id;
         id = newMessageId();
-        assertion = await _sign(s, id, devices, body, created);
-        req = RemoteRequest(
-          messageId: id,
-          action: action,
-          view: view.path,
-          devices: req.devices,
-          created: created,
-          validUntil: req.validUntil,
-          keys: keys,
-          values: values,
-          assertion: assertion,
-        );
-        _state = _with(requests: [...requests.where((r) => r.messageId != old)]);
+        req = build(id, await _sign(s, id, devices, body, created));
+        _state = _state.copyWith(requests: [..._state.requests.where((r) => r.messageId != old)]);
         _put(req);
-        await _exchangeWithSession((session) => _api.exchange(session, send: [assertion]));
+        await _exchangeIn(target.key, (session) => _api.exchange(session, send: [req.assertion!]));
       }
       req = req.copyWith(sent: true);
     } on ConfdbException catch (e) {
@@ -210,21 +335,6 @@ class RemoteController extends ChangeNotifier {
     return _poll();
   }
 
-  /// Removes the session and starts afresh. Requests devices haven't
-  /// collected yet are dropped by the service, and answers still on their
-  /// way are lost.
-  Future<void> resetSession() async {
-    final old = session;
-    _state = RemoteState(settings: settings, devices: devices, requests: requests);
-    await _save();
-    if (old == null) return;
-    try {
-      await _api.removeSession(old);
-    } on ConfdbException {
-      // It may be gone already; nothing else refers to it.
-    }
-  }
-
   Future<String> _sign(RemoteSettings s, String id, List<DeviceId> devices, Map<String, Object?> body, DateTime created) => signer.sign(
     requestMessageHeaders(account: s.account, messageId: id, devices: devices, body: body, now: created, validFor: s.validity),
     s.signingKey,
@@ -232,64 +342,59 @@ class RemoteController extends ChangeNotifier {
 
   MessageService get _api => _service ??= connect(settings);
 
-  /// Runs [op] in the session, opening one when there's none or it's gone.
-  Future<T> _exchangeWithSession<T>(Future<T> Function(String session) op) async {
-    var s = session ?? await _openSession();
+  /// Runs [op] in session [key], opening it again on the service when it's
+  /// gone.
+  Future<T> _exchangeIn<T>(String key, Future<T> Function(String id) op) async {
+    var id = session(key)?.id ?? await _reopen(key);
     try {
-      return await op(s);
+      return await op(id);
     } on MessageServiceException catch (e) {
       if (!e.sessionGone) rethrow;
-      s = await _openSession();
-      return op(s);
+      id = await _reopen(key);
+      return op(id);
     }
   }
 
   /// Concurrent sends share one new session.
-  Future<String> _openSession() => _opening ??= _createSession().whenComplete(() => _opening = null);
+  Future<String> _reopen(String key) => _opening[key] ??= _openOnService(key).whenComplete(() {
+    _opening.remove(key);
+  });
 
-  Future<String> _createSession() async {
-    final s = await _api.createSession();
-    _state = RemoteState(settings: settings, devices: devices, requests: requests, session: s);
+  Future<String> _openOnService(String key) async {
+    final id = await _api.createSession();
+    _updateSession(key, (s) => s.copyWith(id: id, ackToken: null));
     await _save();
-    return s;
+    return id;
   }
 
   Future<void> _poll() async {
-    final s = session;
-    if (_polling || s == null || !_loaded) return;
+    if (_polling || !_loaded) return;
+    final t = now;
+    final current = currentSession?.key;
+    final targets = [
+      for (final s in sessions)
+        if (s.id != null && (s.key == current || _hasWaiting(s.key, t))) s.key,
+    ];
+    if (targets.isEmpty) return;
     _polling = true;
     _pollTimer?.cancel();
     _notify();
     var gotAnswers = false;
+    Object? error;
+    String? errorSession;
     try {
-      var after = _state.ackToken;
-      for (var i = 0; i < 20; i++) {
-        final res = await _api.exchange(s, limit: 50, after: after);
-        if (after != null) _state = _with(ackToken: null);
-        if (res.messages.isEmpty) break;
-        gotAnswers |= _record(res.messages);
-        // Saved before acknowledging, so an answer isn't lost if Studio stops.
-        _state = _with(ackToken: res.messages.last.token);
-        await _save();
-        after = _state.ackToken;
-        if (!res.hasMore) {
-          await _api.exchange(s, after: after);
-          _state = _with(ackToken: null);
-          break;
+      for (final key in targets) {
+        try {
+          gotAnswers |= await _pollSession(key);
+        } on ConfdbException catch (e) {
+          error = e;
+          errorSession = session(key)?.displayName;
         }
       }
       await _save();
-      _pollError = null;
-    } on MessageServiceException catch (e) {
-      _pollError = e;
-      if (e.sessionGone) {
-        // Requests devices hadn't collected are gone with it.
-        _state = RemoteState(settings: settings, devices: devices, requests: requests);
-        await _save();
-      }
-    } on ConfdbException catch (e) {
-      _pollError = e;
     } finally {
+      _pollError = error;
+      _pollErrorSession = errorSession;
       _polling = false;
       _lastPoll = now;
       if (gotAnswers) _pollStep = 0;
@@ -298,6 +403,41 @@ class RemoteController extends ChangeNotifier {
       _schedule();
     }
   }
+
+  /// Fetches, files and acknowledges [key]'s answers; true when any was new.
+  Future<bool> _pollSession(String key) async {
+    final id = session(key)?.id;
+    if (id == null) return false;
+    var gotAnswers = false;
+    try {
+      var after = session(key)?.ackToken;
+      for (var i = 0; i < 20; i++) {
+        final res = await _api.exchange(id, limit: 50, after: after);
+        if (after != null) _updateSession(key, (s) => s.copyWith(ackToken: null));
+        if (res.messages.isEmpty) break;
+        gotAnswers |= _record(res.messages);
+        after = res.messages.last.token;
+        // Saved before acknowledging, so an answer isn't lost if Studio stops.
+        _updateSession(key, (s) => s.copyWith(ackToken: after));
+        await _save();
+        if (!res.hasMore) {
+          await _api.exchange(id, after: after);
+          _updateSession(key, (s) => s.copyWith(ackToken: null));
+          break;
+        }
+      }
+    } on MessageServiceException catch (e) {
+      // Requests devices hadn't collected are gone with it.
+      if (e.sessionGone && session(key)?.id == id) {
+        _updateSession(key, (s) => s.copyWith(id: null, ackToken: null));
+        await _save();
+      }
+      rethrow;
+    }
+    return gotAnswers;
+  }
+
+  bool _hasWaiting(String key, DateTime t) => _state.requests.any((r) => r.session == key && r.isWaitingAt(t));
 
   /// Files [messages] under their requests; true when any was new.
   bool _record(List<QueuedMessage> messages) {
@@ -323,10 +463,16 @@ class RemoteController extends ChangeNotifier {
     _expiryTimer?.cancel();
     if (_disposed || !_loaded) return;
     final t = now;
-    final waiting = requests.where((r) => r.isWaitingAt(t)).toList();
-    if (waiting.isEmpty || session == null) return;
-    final delay = pollDelays[_pollStep.clamp(0, pollDelays.length - 1)];
-    _pollTimer = Timer(delay, _poll);
+    final open = {
+      for (final s in sessions)
+        if (s.id != null) s.key,
+    };
+    final waiting = allRequests.where((r) => r.isWaitingAt(t)).toList();
+    if (waiting.isEmpty) return;
+    if (waiting.any((r) => open.contains(r.session))) {
+      final delay = pollDelays[_pollStep.clamp(0, pollDelays.length - 1)];
+      _pollTimer = Timer(delay, _poll);
+    }
     // Repaint when the next request expires.
     final next = waiting.map((r) => r.validUntil).reduce((a, b) => a.isBefore(b) ? a : b);
     _expiryTimer = Timer(next.difference(t) + const Duration(milliseconds: 50), () {
@@ -336,18 +482,15 @@ class RemoteController extends ChangeNotifier {
   }
 
   void _put(RemoteRequest r) {
-    final i = requests.indexWhere((e) => e.messageId == r.messageId);
-    _state = _with(requests: i < 0 ? [r, ...requests] : ([...requests]..[i] = r));
+    final all = _state.requests;
+    final i = all.indexWhere((e) => e.messageId == r.messageId);
+    _state = _state.copyWith(requests: i < 0 ? [r, ...all] : ([...all]..[i] = r));
     _notify();
   }
 
-  RemoteState _with({List<RemoteDevice>? devices, List<RemoteRequest>? requests, Object? ackToken = _keep}) => RemoteState(
-    settings: settings,
-    devices: devices ?? this.devices,
-    requests: requests ?? this.requests,
-    session: session,
-    ackToken: identical(ackToken, _keep) ? _state.ackToken : ackToken as String?,
-  );
+  void _updateSession(String key, RemoteSession Function(RemoteSession) update) {
+    _state = _state.copyWith(sessions: [for (final s in _state.sessions) s.key == key ? update(s) : s]);
+  }
 
   Future<void> _save() async {
     _notify();
@@ -366,5 +509,3 @@ class RemoteController extends ChangeNotifier {
     super.dispose();
   }
 }
-
-const _keep = Object();
